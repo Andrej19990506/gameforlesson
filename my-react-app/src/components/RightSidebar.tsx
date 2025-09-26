@@ -1,5 +1,4 @@
 import assets from '../assets/assets.js';
-import { imagesDummyData } from '../assets/assets.js'
 import { ChatContext } from '../../context/ChatContext.js'
 import type { ChatContextType } from '../../context/ChatContext.js'
 import { useContext, useState, useEffect } from 'react'
