@@ -11,7 +11,7 @@ import type { User } from './types/user';
 function App() {
   const {authUser} = useContext(AuthContext) as {authUser: User | null}
   return (
-    <div className="bg-[url('/src/assets/bgImage.svg')] bg-cover bg-center bg-no-repeat">
+    <div className="bg-[url('/bgImage.svg')] bg-cover bg-center bg-no-repeat">
       <Toaster />
     <Routes>
       <Route path="/" element={authUser ? <HomePage /> : <Navigate to="/login" />} />
