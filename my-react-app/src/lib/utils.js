@@ -22,10 +22,10 @@ export function formatLastSeen(lastSeen) {
     } else if (diffInMinutes < 120) { // 2 часа
         return `${Math.floor(diffInMinutes / 60)} ч назад`;
     } else if (isToday) {
-        return `была сегодня в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
+        return `сегодня в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
     } else if (isYesterday) {
-        return `была вчера в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
+        return `вчера в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
     } else {
-        return `была ${lastSeenDate.toLocaleDateString('ru-RU')} в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
+        return `${lastSeenDate.toLocaleDateString('ru-RU')} в ${lastSeenDate.toLocaleTimeString('ru-RU', {hour: '2-digit', minute: '2-digit'})}`;
     }
 }

@@ -5,18 +5,88 @@ import type { ChatContextType } from '../../context/ChatContext'
 import { ChatContext } from '../../context/ChatContext'
 import type { AuthContextType } from '../types/auth'
 import { AuthContext } from '../../context/AuthContext'
+import type { Message } from '../types/message'
 import { formatLastSeen } from '../lib/utils'
 import toast from 'react-hot-toast'
 import EmojiPicker from 'emoji-picker-react';
 
 const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser} = useContext(ChatContext) as ChatContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [showMessageMenu, setShowMessageMenu] = useState(false);
+    const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const chatContainerRef = useRef<HTMLDivElement>(null);
 
     const handleEmojiClick = (emojiObject: any) => {
         setInput(input + emojiObject.emoji);
         setShowEmojiPicker(false);
+    };
+
+    const handleMessageClick = (e: React.MouseEvent, message: Message, messageElement: HTMLElement) => {
+        console.log('Message clicked:', message.senderId, authUser?._id);
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const rect = messageElement.getBoundingClientRect();
+        const chatContainer = chatContainerRef.current;
+        
+        // Если наше сообщение - слева, если не наше - справа
+        const menuX = message.senderId === authUser?._id ? rect.left - 130 : rect.right + 10;
+        
+        // Адаптивное позиционирование по вертикали
+        let menuY = rect.top;
+        if (chatContainer) {
+            const containerRect = chatContainer.getBoundingClientRect();
+            const messageCenter = rect.top + rect.height / 2;
+            const containerCenter = containerRect.top + containerRect.height / 2;
+            
+            // Если сообщение в нижней половине контейнера - позиционируем меню снизу
+            if (messageCenter > containerCenter) {
+                menuY = rect.bottom - 120; // Высота меню примерно 120px
+            }
+        }
+        
+        console.log('Opening menu at:', menuX, menuY);
+        setSelectedMessage(message);
+        setMenuPosition({ x: menuX, y: menuY });
+        setShowMessageMenu(true);
+    };
+
+    const handleDeleteMessage = async (messageId: string) => {
+        await deleteMessage(messageId);
+        setShowMessageMenu(false);
+        setSelectedMessage(null);
+        setShowDeleteConfirm(false);
+    };
+
+    const handleDeleteClick = (message: Message) => {
+        setSelectedMessage(message);
+        setShowMessageMenu(false);
+        setShowDeleteConfirm(true);
+    };
+
+    const handleEditMessage = (message: Message) => {
+        setInput(message.text);
+        setShowMessageMenu(false);
+        setSelectedMessage(null);
+        // TODO: Добавить логику редактирования
+    };
+
+    const handleCopyMessage = (message: Message) => {
+        navigator.clipboard.writeText(message.text);
+        setShowMessageMenu(false);
+        setSelectedMessage(null);
+        // TODO: Добавить уведомление о копировании
+    };
+
+    const handleForwardMessage = (message: Message) => {
+        setInput(`Переслано: ${message.text}`);
+        setShowMessageMenu(false);
+        setSelectedMessage(null);
+        // TODO: Добавить логику пересылки
     };
 
     // Компонент для отображения статуса сообщения
@@ -114,6 +184,36 @@ const ChatContainer = () => {
             scrollEnd.current.scrollIntoView({ behavior: 'smooth' })
         }
     }, [messages])
+
+    // Закрытие меню при клике вне его и блокировка скролла
+    useEffect(() => {
+        const handleClickOutside = () => {
+            if (showMessageMenu) {
+                setShowMessageMenu(false);
+                setSelectedMessage(null);
+            }
+        };
+
+        if (showMessageMenu) {
+            // Блокируем скролл контейнера чата
+            if (chatContainerRef.current) {
+                chatContainerRef.current.style.overflow = 'hidden';
+            }
+            document.addEventListener('click', handleClickOutside);
+        } else {
+            // Разблокируем скролл контейнера чата
+            if (chatContainerRef.current) {
+                chatContainerRef.current.style.overflow = 'auto';
+            }
+        }
+
+        return () => {
+            document.removeEventListener('click', handleClickOutside);
+            if (chatContainerRef.current) {
+                chatContainerRef.current.style.overflow = 'auto';
+            }
+        };
+    }, [showMessageMenu]);
     
 
     
@@ -122,8 +222,8 @@ const ChatContainer = () => {
                 {/*Header*/}
                 <div className='flex items-center gap-3 py-3 mx-4 border-b border-stone-500 max-md:mx-0 max-md:px-4'>
                     <img src={selectedUser.profilePic||assets.avatar_icon} alt='' className='w-8 rounded-full' />
-                    <p className='flex-1 text-lg text-white flex items-center gap-2'>
-                        {selectedUser.name}
+                    <div className='flex-1 text-lg text-white flex items-center gap-2'>
+                        <span>{selectedUser.name}</span>
                         {onlineUsers.includes(selectedUser._id)
                          ? ( 
                              <div className='flex items-center gap-1'>
@@ -134,12 +234,12 @@ const ChatContainer = () => {
                              </div>)
                          : <span className='text-xs text-gray-400'> Был(а) в сети {formatLastSeen(selectedUser.lastSeen)}</span>
                          }
-                    </p>
+                    </div>
                     <img onClick={() => setSelectedUser(null)} src={assets.arrow_icon} alt='arrow' className='md:hidden max-w-7' />
                     <img src={assets.help_icon} alt='help' className='max-md:hidden max-w-5' />
                 </div>
                 {/*Chat Container*/}
-                <div className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-6'>
+                <div ref={chatContainerRef} className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-6'>
                 
                 {messages.filter(msg => msg && msg.senderId).map((msg, index) => (
                     <div key={index} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"}`}>
@@ -147,7 +247,12 @@ const ChatContainer = () => {
                                 {msg.image ? (
                                     <img src={msg.image} alt='image' className='max-w-[230px] border border-gray-700 rounded-lg overflow-hidden mb-2' />
                                 ) : (
-                                    <p className={`p-2 max-w-[200px] md:text-sm font-light rounded-lg mb-2 break-words bg-violet-500/30 text-white ${msg.senderId === authUser?._id ? 'rounded-br-none' : 'rounded-bl-none'}`}>{msg.text}</p>
+                                    <p 
+                                        onClick={(e) => handleMessageClick(e, msg, e.currentTarget)}
+                                        className={`p-2 max-w-[200px] md:text-sm font-light rounded-lg mb-2 break-words bg-violet-500/30 text-white cursor-pointer hover:bg-violet-500/40 transition-colors ${msg.senderId === authUser?._id ? 'rounded-br-none' : 'rounded-bl-none'}`}
+                                    >
+                                        {msg.text}
+                                    </p>
                                 )}
                                 {/* Статус сообщения только для своих сообщений */}
                                 {msg.senderId === authUser?._id && (
@@ -221,6 +326,95 @@ const ChatContainer = () => {
         </div>
     )}
                 </div>
+                
+                {/* Контекстное меню для сообщений */}
+                {showMessageMenu && selectedMessage && (
+                    <div 
+                        className='fixed z-50 bg-gray-800 rounded-lg shadow-lg border border-gray-600 py-2 min-w-[120px]'
+                        style={{ 
+                            left: menuPosition.x, 
+                            top: menuPosition.y
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <button
+                            onClick={() => handleCopyMessage(selectedMessage)}
+                            className='w-full px-4 py-2 text-left text-white hover:bg-gray-700 transition-colors text-sm flex items-center gap-3'
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                            </svg>
+                            Копировать
+                        </button>
+                        <button
+                            onClick={() => handleForwardMessage(selectedMessage)}
+                            className='w-full px-4 py-2 text-left text-white hover:bg-gray-700 transition-colors text-sm flex items-center gap-3'
+                        >
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="17,1 21,5 17,9"></polyline>
+                                <path d="M3,11V9a4,4 0 0,1 4,-4H21"></path>
+                                <polyline points="7,23 3,19 7,15"></polyline>
+                                <path d="M21,13v2a4,4 0 0,1 -4,4H3"></path>
+                            </svg>
+                            Переслать
+                        </button>
+                        {selectedMessage.senderId === authUser?._id && (
+                            <>
+                                <button
+                                    onClick={() => handleEditMessage(selectedMessage)}
+                                    className='w-full px-4 py-2 text-left text-white hover:bg-gray-700 transition-colors text-sm flex items-center gap-3'
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                    Редактировать
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteClick(selectedMessage)}
+                                    className='w-full px-4 py-2 text-left text-red-400 hover:bg-gray-700 transition-colors text-sm flex items-center gap-3'
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="3,6 5,6 21,6"></polyline>
+                                        <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                    Удалить
+                                </button>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                {/* Модальное окно подтверждения удаления */}
+                {showDeleteConfirm && selectedMessage && (
+                    <div className="fixed inset-0  bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4">
+                            <h3 className="text-lg font-semibold text-white mb-4">Удалить сообщение</h3>
+                            <p className="text-gray-300 mb-2">Вы уверены, что хотите удалить это сообщение?</p>
+                            <p className="text-gray-400 text-sm mb-6">Это удалит сообщение для всех участников чата.</p>
+                            <div className="flex gap-3 justify-end">
+                                <button
+                                    onClick={() => {
+                                        setShowDeleteConfirm(false);
+                                        setSelectedMessage(null);
+                                    }}
+                                    className="px-4 py-2 text-purple-400 hover:text-purple-300 transition-colors"
+                                >
+                                    ОТМЕНА
+                                </button>
+                                <button
+                                    onClick={() => handleDeleteMessage(selectedMessage._id)}
+                                    className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                                >
+                                    УДАЛИТЬ
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
     ) : (
         <div className='flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 max-md:hidden'>

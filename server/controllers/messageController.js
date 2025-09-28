@@ -11,16 +11,30 @@ export const getUsersForSidebar = async (req, res) => {
        const userId = req.user._id;
        const filteredUsers = await User.find({_id: {$ne: userId}}).select("-password");
 
-       //count number of messages  not seen
+       //count number of messages  not seen and get last messages
        const unseenMessages = {}
+       const lastMessages = {}
        const promises = filteredUsers.map(async (user) => {
-        const messages = await Message.find({senderId: user._id, receiverId: userId, seen: false});
-        if(messages.length > 0){
-            unseenMessages[user._id] = messages.length;
+        // Count unseen messages
+        const unseenMsgs = await Message.find({senderId: user._id, receiverId: userId, seen: false});
+        if(unseenMsgs.length > 0){
+            unseenMessages[user._id] = unseenMsgs.length;
+        }
+        
+        // Get last message between current user and this user
+        const lastMessage = await Message.findOne({
+            $or: [
+                {senderId: userId, receiverId: user._id},
+                {senderId: user._id, receiverId: userId}
+            ]
+        }).sort({createdAt: -1});
+        
+        if(lastMessage) {
+            lastMessages[user._id] = lastMessage;
         }
        })
        await Promise.all(promises);
-       res.json({success: true, users: filteredUsers, unseenMessages});
+       res.json({success: true, users: filteredUsers, unseenMessages, lastMessages});
     } catch (error) {
         console.log(error);
         res.json({success: false, message: error.message});
@@ -84,6 +98,37 @@ export const sendMessage = async (req, res) => {
         }
 
         res.json({success: true, message: newMessage});
+    } catch (error) {
+        console.log(error);
+        res.json({success: false, message: error.message});
+    }
+}
+
+//Delete message
+export const deleteMessage = async (req, res) => {
+    try {
+        const {id:messageId} = req.params;
+        const myId = req.user._id;
+
+        const message = await Message.findById(messageId);
+        if(!message) {
+            return res.json({success: false, message: "Message not found"});
+        }
+
+        // Проверяем, что пользователь может удалить сообщение (только свои сообщения)
+        if(message.senderId.toString() !== myId.toString()) {
+            return res.json({success: false, message: "Unauthorized"});
+        }
+
+        await Message.findByIdAndDelete(messageId);
+        
+        // Отправляем событие удаления через WebSocket
+        const receiverSocketId = userSocketMap[message.receiverId.toString()];
+        if(receiverSocketId){
+            io.to(receiverSocketId).emit("messageDeleted", {messageId});
+        }
+        
+        res.json({success: true, message: "Message deleted successfully"});
     } catch (error) {
         console.log(error);
         res.json({success: false, message: error.message});
