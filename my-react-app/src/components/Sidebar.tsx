@@ -1,10 +1,12 @@
 import { useContext, useState, useEffect } from 'react'
+import { MenuIcon } from 'lucide-react'
 import assets from '../assets/assets'
 import { useNavigate } from 'react-router-dom'
 import type { User } from '../types/user'
 import { AuthContext } from '../../context/AuthContext'
 import { ChatContext } from '../../context/ChatContext'
 import type { ChatContextType } from '../../context/ChatContext'
+import MenuBar from './MenuBar'
 
 
 const Sidebar = () => {
@@ -16,6 +18,7 @@ const Sidebar = () => {
     const {logout, onlineUsers, authUser} = useContext(AuthContext) as {logout: () => void, onlineUsers: string[], authUser: User | null}
     
     const [input, setInput] = useState('')
+    const [isMenuOpen, setIsMenuOpen] = useState(false)
 
     const filteredUsers = input ? users.filter((user: User) => user.name.toLowerCase().includes(input.toLowerCase())) : users
     
@@ -43,10 +46,24 @@ const Sidebar = () => {
     }, [onlineUsers])
 
     return (
-        <div className={`bg-[#8185B2]/10 h-full p-5 rounded-r-xl overflow-y-scroll text-white ${selectedUser ? "max-md:hidden" : ''}`}>
+        <>
+            {/* Кнопка меню для мобильных устройств */}
+            <div className={`md:hidden fixed top-4 left-4 z-50 ${selectedUser ? 'hidden' : ''}`}>
+                <button 
+                    onClick={() => setIsMenuOpen(true)}
+                    className="p-2 bg-gray-800 rounded-lg text-white hover:bg-gray-700 transition-colors"
+                >
+                    <MenuIcon size={14} />
+                </button>
+            </div>
+
+            {/* MenuBar компонент */}
+            <MenuBar isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
+
+            {/* Сайдбар */}
+            <div className={`h-full p-5 rounded-r-xl overflow-y-scroll text-white ${selectedUser ? "max-md:hidden" : ''}`} style={{backgroundColor: 'var(--color-gray-900)'}}>
             <div className='pb-5'>
                 <div className='flex justify-between items-center'>
-                    <img src={assets.logo} alt='logo' className='max-w-40'/>
                     <div className='relative py-2 group'>
                         <img src={assets.menu_icon} alt='menu' className='max-h-5 cursor-pointer' />
                         <div className='absolute top-full right-0 z-20 w-32 p-5 rounded-md bg-[#282142] border border-gray-600 text-gray-100 hidden group-hover:block'>
@@ -105,7 +122,17 @@ const Sidebar = () => {
                                     <div className='flex items-center justify-between'>
                                         <div className='flex-1 min-w-0 flex items-center gap-1'>
                                             {typingUser.includes(user._id) ? (
-                                                <span className='text-gray-300 text-xs'>печатает...</span>
+                                                <div className="flex items-center gap-1">
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400 animate-pulse">
+                                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                                    </svg>
+                                                    <div className="flex space-x-0.5">
+                                                        <div className="w-1 h-1 bg-green-400 rounded-full animate-pulse"></div>
+                                                        <div className="w-1 h-1 bg-green-400 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                                                        <div className="w-1 h-1 bg-green-400 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+                                                    </div>
+                                                </div>
                                             ) : (() => {
                                                 const lastMessage = lastMessages[user._id];
                                                 if (!lastMessage) {
@@ -150,6 +177,7 @@ const Sidebar = () => {
                 })}
             </div>
         </div>
+        </>
     )
 }
 

@@ -19,10 +19,11 @@ export interface ChatContextType {
     lastMessages: { [key: string]: Message },
     setLastMessages: (lastMessages: { [key: string]: Message }) => void,
     sendMessage: (messageData: {text: string, image: string}) => void,
-    getMessages: (userId: string) => void,
+    getMessages: (userId: string) => Promise<void>,
     retryMessage: (messageId: string) => void,
     updateMessageSeen: (messageId: string) => void,
     deleteMessage: (messageId: string) => void,
+    addReaction: (messageId: string, emoji: string) => void,
     typingUser: string[],
     handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
     isTyping: boolean,
@@ -334,6 +335,71 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         return () => unsubscribeFromMessages();
     }, [socket, selectedUser])
 
+    const addReaction = async (messageId: string, emoji: string) => {
+        // Мгновенное обновление UI
+        setMessages(prevMessages => 
+            prevMessages.map(msg => {
+                if (msg._id === messageId) {
+                    const existingReaction = msg.reactions?.find(
+                        reaction => reaction.userId === authUser?._id && reaction.emoji === emoji
+                    );
+
+                    let newReactions = [...(msg.reactions || [])];
+                    
+                    if (existingReaction) {
+                        // Удаляем существующую реакцию
+                        newReactions = newReactions.filter(
+                            reaction => !(reaction.userId === authUser?._id && reaction.emoji === emoji)
+                        );
+                    } else {
+                        // Удаляем все предыдущие реакции этого пользователя
+                        newReactions = newReactions.filter(
+                            reaction => reaction.userId !== authUser?._id
+                        );
+                        
+                        // Добавляем новую реакцию
+                        newReactions.push({
+                            emoji,
+                            userId: authUser?._id || '',
+                            createdAt: new Date().toISOString()
+                        });
+                    }
+
+                    return { ...msg, reactions: newReactions };
+                }
+                return msg;
+            })
+        );
+
+
+        try {
+            const {data} = await axios.post(`/api/message/reaction/${messageId}`, {emoji});
+            if(!data.success) {
+                console.error('Ошибка при добавлении реакции:', data.message);
+                toast.error(data.message);
+                // Откатываем изменения при ошибке
+                setMessages(prevMessages => 
+                    prevMessages.map(msg => 
+                        msg._id === messageId ? data.updatedMessage : msg
+                    )
+                );
+            }
+        } catch (error: any) {
+            console.error('Ошибка при добавлении реакции:', error);
+            toast.error(error.message);
+            // Откатываем изменения при ошибке
+            setMessages(prevMessages => 
+                prevMessages.map(msg => {
+                    if (msg._id === messageId) {
+                        // Возвращаем исходное состояние реакций
+                        return { ...msg, reactions: msg.reactions?.filter(r => r.userId !== authUser?._id) || [] };
+                    }
+                    return msg;
+                })
+            );
+        }
+    };
+
     useEffect(() => {
         if(socket){
             socket.on("userTyping", (data: {senderId: string, isTyping: boolean}) => {
@@ -344,6 +410,14 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                         : prev.filter(id => id !== data.senderId)
                     )
                 }
+            })
+
+            socket.on("messageUpdated", (updatedMessage: Message) => {
+                setMessages(prevMessages => 
+                    prevMessages.map(msg => 
+                        msg._id === updatedMessage._id ? updatedMessage : msg
+                    )
+                );
             })
         }
     }, [socket, selectedUser])
@@ -365,6 +439,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         retryMessage,
         updateMessageSeen,
         deleteMessage,
+        addReaction,
         typingUser,
         handleInputChange,
         isTyping,

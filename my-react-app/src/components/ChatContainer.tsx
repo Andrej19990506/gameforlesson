@@ -11,14 +11,19 @@ import toast from 'react-hot-toast'
 import EmojiPicker from 'emoji-picker-react';
 
 const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage} = useContext(ChatContext) as ChatContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage, addReaction} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showMessageMenu, setShowMessageMenu] = useState(false);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
     const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const [showEmojiReactions, setShowEmojiReactions] = useState(false);
+    const [showScrollButton, setShowScrollButton] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [lastReadMessageId, setLastReadMessageId] = useState<string | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
 
     const handleEmojiClick = (emojiObject: any) => {
         setInput(input + emojiObject.emoji);
@@ -30,11 +35,40 @@ const ChatContainer = () => {
         e.preventDefault();
         e.stopPropagation();
         
+        // Если кликаем на то же сообщение - закрываем меню
+        if (selectedMessage && selectedMessage._id === message._id) {
+            setShowMessageMenu(false);
+            setShowEmojiReactions(false);
+            setSelectedMessage(null);
+            return;
+        }
+        
+        // Если кликаем на другое сообщение - только закрываем предыдущее меню
+        if (selectedMessage && selectedMessage._id !== message._id) {
+            setShowMessageMenu(false);
+            setShowEmojiReactions(false);
+            setSelectedMessage(null);
+            return;
+        }
+        
+        // Если меню закрыто - открываем для нового сообщения
         const rect = messageElement.getBoundingClientRect();
         const chatContainer = chatContainerRef.current;
         
+        // Безопасные зоны: 20% слева и справа
+        const safeZoneLeft = window.innerWidth * 0.2;
+        const safeZoneRight = window.innerWidth * 0.8;
+        const menuWidth = 130;
+        
         // Если наше сообщение - слева, если не наше - справа
-        const menuX = message.senderId === authUser?._id ? rect.left - 130 : rect.right + 10;
+        let menuX = message.senderId === authUser?._id ? rect.left - menuWidth : rect.right + 10;
+        
+        // Проверяем безопасные зоны
+        if (menuX < safeZoneLeft) {
+            menuX = safeZoneLeft;
+        } else if (menuX + menuWidth > safeZoneRight) {
+            menuX = safeZoneRight - menuWidth;
+        }
         
         // Адаптивное позиционирование по вертикали
         let menuY = rect.top;
@@ -53,6 +87,7 @@ const ChatContainer = () => {
         setSelectedMessage(message);
         setMenuPosition({ x: menuX, y: menuY });
         setShowMessageMenu(true);
+        setShowEmojiReactions(false);
     };
 
     const handleDeleteMessage = async (messageId: string) => {
@@ -73,6 +108,50 @@ const ChatContainer = () => {
         setShowMessageMenu(false);
         setSelectedMessage(null);
         // TODO: Добавить логику редактирования
+    };
+
+    const handleEmojiReaction = (emoji: string) => {
+        if (selectedMessage) {
+            addReaction(selectedMessage._id, emoji);
+        }
+        setShowMessageMenu(false);
+        setSelectedMessage(null);
+        setShowEmojiReactions(false);
+    };
+
+    const handleReactionClick = (messageId: string, emoji: string) => {
+        addReaction(messageId, emoji);
+    };
+
+    const handleShowEmojiReactions = () => {
+        setShowMessageMenu(false);
+        setShowEmojiReactions(true);
+    };
+
+    const handleCloseEmojiReactions = () => {
+        setShowEmojiReactions(false);
+        setShowMessageMenu(true);
+    };
+
+    const getSafeMenuPosition = (x: number, y: number, menuWidth: number = 200) => {
+        const safeZoneLeft = 20;
+        const safeZoneRight = window.innerWidth - 20;
+        const safeZoneTop = 80; // Высота хедера
+        
+        let safeX = x;
+        let safeY = y;
+        
+        if (safeX < safeZoneLeft) {
+            safeX = safeZoneLeft;
+        } else if (safeX + menuWidth > safeZoneRight) {
+            safeX = safeZoneRight - menuWidth;
+        }
+        
+        if (safeY < safeZoneTop) {
+            safeY = safeZoneTop;
+        }
+        
+        return { x: safeX, y: safeY };
     };
 
     const handleCopyMessage = (message: Message) => {
@@ -170,20 +249,48 @@ const ChatContainer = () => {
 
         reader.readAsDataURL(file)
     }
-    
+
     const scrollEnd = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if(selectedUser){
-            getMessages(selectedUser._id)
+            setIsLoadingMessages(true);
+            getMessages(selectedUser._id).finally(() => {
+                setIsLoadingMessages(false);
+            });
         }
     }, [selectedUser])
 
     useEffect(() => {
-        if (scrollEnd.current && messages) {
-            scrollEnd.current.scrollIntoView({ behavior: 'smooth' })
+        if (messages && messages.length > 0) {
+            const lastMessage = messages[messages.length - 1];
+            if (lastMessage && lastMessage.senderId !== authUser?._id) {
+                // Новое сообщение от другого пользователя
+                if (lastReadMessageId && lastMessage._id !== lastReadMessageId) {
+                    setUnreadCount(prev => prev + 1);
+                }
+            }
         }
-    }, [messages])
+    }, [messages, authUser?._id, lastReadMessageId])
+
+    const handleScrollToBottom = () => {
+        if (scrollEnd.current) {
+            scrollEnd.current.scrollIntoView({ behavior: 'smooth' });
+            setShowScrollButton(false);
+            setUnreadCount(0);
+            if (messages && messages.length > 0) {
+                setLastReadMessageId(messages[messages.length - 1]._id);
+            }
+        }
+    };
+
+    const handleScroll = () => {
+        if (chatContainerRef.current) {
+            const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+            const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+            setShowScrollButton(!isAtBottom);
+        }
+    };
 
     // Закрытие меню при клике вне его и блокировка скролла
     useEffect(() => {
@@ -213,60 +320,160 @@ const ChatContainer = () => {
                 chatContainerRef.current.style.overflow = 'auto';
             }
         };
-    }, [showMessageMenu]);
+    }, [showMessageMenu, showEmojiReactions]);
     
-
+    
     
     return selectedUser ? (
-            <div className='h-full overflow-scroll relative backdrop-blur-lg max-md:h-screen max-md:rounded-none max-md:border-none'>
+            <div className='h-full overflow-scroll relative backdrop-blur-lg max-md:h-screen max-md:rounded-none max-md:border-none' style={{backgroundColor: 'var(--color-gray-800)'}}>
                 {/*Header*/}
-                <div className='flex items-center gap-3 py-3 mx-4 border-b border-stone-500 max-md:mx-0 max-md:px-4'>
-                    <img src={selectedUser.profilePic||assets.avatar_icon} alt='' className='w-8 rounded-full' />
-                    <div className='flex-1 text-lg text-white flex items-center gap-2'>
-                        <span>{selectedUser.name}</span>
-                        {onlineUsers.includes(selectedUser._id)
-                         ? ( 
-                             <div className='flex items-center gap-1'>
-                                 <span className='w-2 h-2 rounded-full bg-green-500'></span>
-                                 {typingUser.includes(selectedUser._id) && (
-                                     <span className='text-gray-300 text-xs'>печатает...</span>
-                                 )}
-                             </div>)
-                         : <span className='text-xs text-gray-400'> Был(а) в сети {formatLastSeen(selectedUser.lastSeen)}</span>
-                         }
+                <div className='flex items-center gap-3 py-4 mx-4 border-stone-500 max-md:mx-0 max-md:px-4 rounded-b-lg shadow-lg border-b border-violet-400/20' style={{backgroundColor: 'var(--color-gray-900)'}}>
+                    <div className="relative">
+                        <img 
+                            src={selectedUser.profilePic||assets.avatar_icon} 
+                            alt='' 
+                            className={`w-10 h-10 rounded-full border-2 shadow-md ${
+                                onlineUsers.includes(selectedUser._id) 
+                                    ? 'border-green-400' 
+                                    : 'border-violet-400/50'
+                            }`} 
+                        />
                     </div>
-                    <img onClick={() => setSelectedUser(null)} src={assets.arrow_icon} alt='arrow' className='md:hidden max-w-7' />
-                    <img src={assets.help_icon} alt='help' className='max-md:hidden max-w-5' />
+                    <div className='flex-1 text-white'>
+                        <div className='flex items-center gap-2'>
+                            <span className='text-xl font-semibold text-white drop-shadow-sm'>{selectedUser.name}</span>
+                        </div>
+                        <div className={`text-sm font-medium ${
+                            onlineUsers.includes(selectedUser._id) 
+                                ? 'text-green-400' 
+                                : 'text-violet-200'
+                        }`}>
+                            {typingUser.includes(selectedUser._id) ? (
+                                <div className="flex items-center gap-2">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-green-400 animate-pulse">
+                                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                                    </svg>
+                                    <div className="flex space-x-1">
+                                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></div>
+                                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" style={{animationDelay: '0.2s'}}></div>
+                                        <div className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse" style={{animationDelay: '0.4s'}}></div>
+                                    </div>
+                                </div>
+                            ) : onlineUsers.includes(selectedUser._id) ? (
+                                'в сети'
+                            ) : (
+                                `Был(а) в сети ${formatLastSeen(selectedUser.lastSeen)}`
+                            )}
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => setSelectedUser(null)} 
+                        className='md:hidden p-3 bg-violet-600/20 hover:bg-violet-600/40 rounded-full transition-all duration-200 shadow-md hover:shadow-lg'
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
+                            <polyline points="15,18 9,12 15,6"></polyline>
+                        </svg>
+                    </button>
+                    <button className='max-md:hidden p-2 hover:bg-violet-500/20 rounded-lg transition-colors'>
+                        <img src={assets.help_icon} alt='help' className='max-w-5' />
+                    </button>
                 </div>
                 {/*Chat Container*/}
-                <div ref={chatContainerRef} className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-6'>
+                <div ref={chatContainerRef} onScroll={handleScroll} className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-8'>
                 
-                {messages.filter(msg => msg && msg.senderId).map((msg, index) => (
-                    <div key={index} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"}`}>
+                {/* Loading Messages */}
+                {isLoadingMessages && (
+                    <div className="flex justify-center items-center h-full">
+                        <div className="flex flex-col items-center space-y-4">
+                            <div className="relative">
+                                <div className="w-12 h-12 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin"></div>
+                                <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-t-violet-400 rounded-full animate-spin" style={{animationDirection: 'reverse', animationDuration: '1.5s'}}></div>
+                            </div>
+                            <div className="text-center">
+                                <p className="text-violet-400 font-medium">Загружаем сообщения...</p>
+                                <p className="text-gray-400 text-sm">Пожалуйста, подождите</p>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Messages */}
+                {!isLoadingMessages && messages.filter(msg => msg && msg.senderId).map((msg, index) => {
+                    const prevMsg = messages[index - 1];
+                    const isSameSender = prevMsg && prevMsg.senderId === msg.senderId;
+                    const isOwnMessage = msg.senderId === authUser?._id;
+                    const isLastMessage = index === messages.filter(msg => msg && msg.senderId).length - 1;
+                    
+                    return (
+                    <div key={index} data-message-id={msg._id} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"} ${isSameSender && isOwnMessage ? 'mt-0.5' : 'mt-2'} ${isLastMessage ? 'mb-0' : ''}`}>
                             <div className="flex flex-col items-end">
-                                {msg.image ? (
+                            {msg.image ? (
                                     <img src={msg.image} alt='image' className='max-w-[230px] border border-gray-700 rounded-lg overflow-hidden mb-2' />
                                 ) : (
-                                    <p 
+                                    <div 
                                         onClick={(e) => handleMessageClick(e, msg, e.currentTarget)}
-                                        className={`p-2 max-w-[200px] md:text-sm font-light rounded-lg mb-2 break-words bg-violet-500/30 text-white cursor-pointer hover:bg-violet-500/40 transition-colors ${msg.senderId === authUser?._id ? 'rounded-br-none' : 'rounded-bl-none'}`}
+                                        className={`px-2 py-1 max-w-[200px] md:text-sm font-light rounded-lg ${isOwnMessage ? 'mb-2' : 'mb-0'} break-words text-white cursor-pointer transition-colors ${msg.senderId === authUser?._id ? 'bg-violet-900/95 hover:bg-violet-600 rounded-br-none' : 'bg-gray-900 hover:bg-gray-600 rounded-bl-none'}`}
                                     >
-                                        {msg.text}
-                                    </p>
+                                        <div className="flex items-end justify-between">
+                                            <span className="flex-1">{msg.text}</span>
+                                            <span className="text-xs text-gray-400 ml-2">
+                                                {formatMessageTime(msg.createdAt)}
+                                            </span>
+                                        </div>
+                                        {/* Реакции внутри пузырька слева */}
+                                        {msg.reactions && msg.reactions.length > 0 && (
+                                            <div className="flex justify-start mt-1">
+                                                <div className="bg-gray-600/80 px-2 py-1 rounded-full flex items-center gap-1">
+                                                    {msg.reactions.map((reaction, reactionIndex) => (
+                                                        <div 
+                                                            key={reactionIndex} 
+                                                            className="flex items-center gap-1 cursor-pointer hover:bg-gray-500/50 rounded px-1 py-0.5"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleReactionClick(msg._id, reaction.emoji);
+                                                            }}
+                                                        >
+                                                            <span className="text-sm">
+                                                                {reaction.emoji}
+                                                            </span>
+                                                            <img 
+                                                                src={reaction.userId === authUser?._id ? authUser.profilePic || assets.avatar_icon : selectedUser.profilePic || assets.avatar_icon} 
+                                                                alt="avatar" 
+                                                                className="w-4 h-4 rounded-full"
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
                                 )}
                                 {/* Статус сообщения только для своих сообщений */}
                                 {msg.senderId === authUser?._id && (
-                                    <div className="mb-6">
+                                    <div>
                                         <MessageStatus status={msg.status} messageId={msg._id} seen={msg.seen} messageIndex={index} />
                                     </div>
                                 )}
                             </div>
-                            <div className='text-center text-xs'>
-                                <img src={msg.senderId === authUser?._id ? authUser?.profilePic || assets.avatar_icon : selectedUser.profilePic || assets.avatar_icon} alt='send' className='w-7 rounded-full' />
-                                <p className='text-gray-500'>{formatMessageTime(msg.createdAt)}</p>
-                            </div>
                         </div>
-                    ))}
+                    );
+                })}
+                
+                {/* Empty State */}
+                {!isLoadingMessages && messages.filter(msg => msg && msg.senderId).length === 0 && (
+                    <div className="flex flex-col items-center justify-center h-full text-center">
+                        <div className="w-20 h-20 bg-violet-500/20 rounded-full flex items-center justify-center mb-4">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                        </div>
+                        <h3 className="text-lg font-medium text-white mb-2">Начните общение</h3>
+                        <p className="text-gray-400 text-sm max-w-xs">
+                            Отправьте первое сообщение, чтобы начать разговор с {selectedUser.name}
+                        </p>
+                    </div>
+                )}
                     
                     {/* Индикатор "печатает..." - только для первого сообщения после нашего */}
                     {typingUser.includes(selectedUser._id) && (() => {
@@ -293,15 +500,34 @@ const ChatContainer = () => {
                                             </div>
                                         </div>
                                     </div>
-                                </div>
                             </div>
+                        </div>
                         ) : null;
                     })()}
                     <div ref={scrollEnd}></div>
                 </div>
+                
+                {/* Кнопка скролла вниз */}
+                {showScrollButton && (
+                    <div className="absolute bottom-20 right-4 z-40">
+                        <button
+                            onClick={handleScrollToBottom}
+                            className="bg-violet-600 hover:bg-violet-700 text-white rounded-full p-3 shadow-lg transition-colors relative"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="6,9 12,15 18,9"></polyline>
+                            </svg>
+                            {unreadCount > 0 && (
+                                <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-6 w-6 flex items-center justify-center">
+                                    {unreadCount > 99 ? '99+' : unreadCount}
+                                </span>
+                            )}
+                        </button>
+                    </div>
+                )}
                 {/*Chat bottom-area*/}
-                <div className='absolute bottom-0 left-0 right-0 flex items-center gap-3 p-3 max-md:px-4'>
-                    <div className='flex-1 flex items-center bg-gray-100/12 px-3 rounded-full'>
+                <div className='absolute bottom-0 left-0 right-0 flex items-center p-3 max-md:px-4'>
+                    <div className='flex-1 flex items-center px-3 rounded-full' style={{backgroundColor: 'var(--color-gray-900)'}}>
                         <button 
                                 onClick={() => setShowEmojiPicker(!showEmojiPicker)}
                                 className='mr-2 text-white hover:text-gray-300'
@@ -318,8 +544,10 @@ const ChatContainer = () => {
                         <label htmlFor='image' className='cursor-pointer'>
                             <img src={assets.gallery_icon} alt='gallery' className='w-5 mr-2 cursor-pointer' />
                         </label>
+                        <button onClick={() => handleSendMessage()} className='ml-2 p-1 text-white hover:text-gray-300'>
+                            <img src={assets.send_button} alt='send' className='w-6 cursor-pointer' />
+                        </button>
                     </div>
-                    <img onClick={() => handleSendMessage()} src={assets.send_button} alt='send' className='w-7 cursor-pointer' />
                     {showEmojiPicker && (
         <div className='absolute bottom-16 left-4 z-50'>
             <EmojiPicker onEmojiClick={handleEmojiClick} />
@@ -327,13 +555,45 @@ const ChatContainer = () => {
     )}
                 </div>
                 
+                {/* Эмодзи реакции */}
+                {showMessageMenu && selectedMessage && (
+                    <div 
+                        className='fixed z-50 bg-gray-800/95 rounded-lg shadow-lg'
+                        style={{ 
+                            left: getSafeMenuPosition(menuPosition.x, menuPosition.y - 50, 200).x, 
+                            top: getSafeMenuPosition(menuPosition.x, menuPosition.y - 50, 200).y
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className='flex items-center gap-1 justify-center'>
+                            {['😀', '😂', '😍', '❤️', '👍'].map((emoji, index) => (
+                                <button
+                                    key={index}
+                                    onClick={() => handleEmojiReaction(emoji)}
+                                    className='text-lg hover:bg-gray-700 rounded p-1 transition-colors'
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                            <button
+                                onClick={handleShowEmojiReactions}
+                                className='text-lg hover:bg-gray-700 rounded p-1 transition-colors'
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <polyline points="6,9 12,15 18,9"></polyline>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Контекстное меню для сообщений */}
                 {showMessageMenu && selectedMessage && (
                     <div 
-                        className='fixed z-50 bg-gray-800 rounded-lg shadow-lg border border-gray-600 py-2 min-w-[120px]'
+                        className='fixed z-50 bg-gray-800/95 rounded-lg shadow-lg py-2 min-w-[120px]'
                         style={{ 
-                            left: menuPosition.x, 
-                            top: menuPosition.y
+                            left: getSafeMenuPosition(menuPosition.x, menuPosition.y - 50, 120).x, 
+                            top: getSafeMenuPosition(menuPosition.x, menuPosition.y - 50, 120).y + 50
                         }}
                         onClick={(e) => e.stopPropagation()}
                     >
@@ -415,6 +675,45 @@ const ChatContainer = () => {
                         </div>
                     </div>
                 )}
+
+        {/* Меню с полным списком эмодзи реакций */}
+        {showEmojiReactions && selectedMessage && (() => {
+            const safePosition = getSafeMenuPosition(menuPosition.x, menuPosition.y, 200);
+            return (
+            <div 
+                className='fixed z-50 bg-gray-800/95 rounded-lg shadow-lg  p-2'
+                style={{ 
+                    left: safePosition.x, 
+                    top: safePosition.y
+                }}
+                onClick={(e) => e.stopPropagation()}
+            >
+                {/* Кнопка закрытия */}
+                <div className='flex justify-end mb-2'>
+                    <button
+                        onClick={handleCloseEmojiReactions}
+                        className='text-gray-400 hover:text-white transition-colors p-1'
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                    </div>
+                <div className='flex flex-wrap gap-1 justify-center max-w-[200px]'>
+                    {['😀', '😂', '😍', '❤️', '👍', '👎', '🔥', '💯', '🎉', '😢', '😮', '😡', '🤔', '👏', '🙏', '💪', '🎯', '🚀', '⭐', '💎', '🎊', '😎', '🤩', '😘', '🥰', '😋', '🤤', '😴', '🤯', '🥳'].map((emoji, index) => (
+                        <button
+                            key={index}
+                            onClick={() => handleEmojiReaction(emoji)}
+                            className='text-lg hover:bg-gray-700 rounded p-1 transition-colors'
+                        >
+                            {emoji}
+                        </button>
+                    ))}
+                </div>
+            </div>
+            );
+        })()}
             </div>
     ) : (
         <div className='flex flex-col items-center justify-center gap-2 text-gray-500 bg-white/10 max-md:hidden'>

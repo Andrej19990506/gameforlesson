@@ -1,5 +1,11 @@
 export type MessageStatus = 'sending' | 'sent' | 'error'
 
+export interface Reaction {
+    emoji: string
+    userId: string
+    createdAt: string
+}
+
 export interface Message {
     _id: string
     text: string
@@ -9,5 +15,6 @@ export interface Message {
     seen: boolean
     createdAt: string
     status?: MessageStatus
+    reactions?: Reaction[]
 }
 

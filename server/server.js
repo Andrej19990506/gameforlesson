@@ -73,6 +73,7 @@ app.use(cors())
 //routes setup
 app.use("/api/status",(req,res)=> res.status(200).send("Server is running"))
 app.use("/api/auth", userRouter)
+app.use("/api/user", userRouter)
 app.use("/api/message", messageRouter)
 
 //connect to MongoDB

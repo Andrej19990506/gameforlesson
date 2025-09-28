@@ -134,3 +134,58 @@ export const deleteMessage = async (req, res) => {
         res.json({success: false, message: error.message});
     }
 }
+
+export const addReaction = async (req, res) => {
+    try {
+        const {messageId} = req.params;
+        const {emoji} = req.body;
+        const userId = req.user._id;
+
+        const message = await Message.findById(messageId);
+        if(!message) {
+            return res.json({success: false, message: "Message not found"});
+        }
+
+        // Проверяем, есть ли уже реакция от этого пользователя с этим эмодзи
+        const existingReaction = message.reactions.find(
+            reaction => reaction.userId.toString() === userId.toString() && reaction.emoji === emoji
+        );
+
+        if(existingReaction) {
+            // Удаляем существующую реакцию (клик по своей реакции)
+            message.reactions = message.reactions.filter(
+                reaction => !(reaction.userId.toString() === userId.toString() && reaction.emoji === emoji)
+            );
+        } else {
+            // Удаляем все предыдущие реакции этого пользователя (только одна реакция на сообщение)
+            message.reactions = message.reactions.filter(
+                reaction => reaction.userId.toString() !== userId.toString()
+            );
+            
+            // Добавляем новую реакцию
+            message.reactions.push({
+                emoji,
+                userId,
+                createdAt: new Date()
+            });
+        }
+
+        await message.save();
+
+        // Отправляем обновленное сообщение через WebSocket
+        const receiverSocketId = userSocketMap[message.receiverId.toString()];
+        const senderSocketId = userSocketMap[message.senderId.toString()];
+        
+        if(receiverSocketId) {
+            io.to(receiverSocketId).emit("messageUpdated", message);
+        }
+        if(senderSocketId) {
+            io.to(senderSocketId).emit("messageUpdated", message);
+        }
+
+        res.json({success: true, message: "Reaction added successfully", updatedMessage: message});
+    } catch (error) {
+        console.log(error);
+        res.json({success: false, message: error.message});
+    }
+}
