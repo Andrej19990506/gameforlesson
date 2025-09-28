@@ -4,5 +4,6 @@ export interface User {
     name: string
     profilePic: string
     bio: string
+    lastSeen: string
 }
 

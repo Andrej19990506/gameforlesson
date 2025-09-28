@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import type { User } from "../src/types/user";
 import { AuthContext } from "./AuthContext";
 import type { Socket } from "socket.io-client";
 import type { AxiosInstance } from "axios";
 import { toast } from "react-hot-toast";
 import type { Message } from "../src/types/message.ts";
+import type { AuthContextType } from "../src/types/auth.ts";
 
 
 export interface ChatContextType {
@@ -19,6 +20,10 @@ export interface ChatContextType {
     setUnseenMessages: (unseenMessages: { [key: string]: number }) => void,
     sendMessage: (messageData: {text: string, image: string}) => void,
     getMessages: (userId: string) => void
+    typingUser: string[],
+    handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
+    isTyping: boolean
+    input: string
 }
 
 export const ChatContext = createContext<ChatContextType | null>(null)
@@ -29,9 +34,13 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [users, setUsers] = useState<User[]>([])
     const [unseenMessages, setUnseenMessages] = useState<{ [key: string]: number }>({})
+    const [typingUser, setTypingUser] = useState<string[]>([]);
+    const {socket, axios, authUser} = useContext(AuthContext) as AuthContextType
+    const [input, setInput] = useState('')
+    const [isTyping, setIsTyping] = useState(false)
 
-    const {socket, axios} = useContext(AuthContext) as {socket: Socket, axios: AxiosInstance}
-
+    const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    
     //get all users for sidebar
     const getUsers = async () => {
         try {
@@ -102,13 +111,49 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         if(socket) socket.off("newMessage")
     }
 
+    //function to handle input change
+    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setInput(e.target.value)
+
+        if(!isTyping){
+            setIsTyping(true);
+            socket?.emit("typing", {
+                receiverId: selectedUser?._id,
+                isTyping: true
+            }) 
+        }
+
+        if(typingTimeoutRef.current){
+            clearTimeout(typingTimeoutRef.current)
+        }
+
+        typingTimeoutRef.current = setTimeout(() => {
+            setIsTyping(false)
+            socket?.emit("typing", {
+                receiverId: selectedUser?._id,
+                isTyping: false
+            })
+        }, 1000)
+    }
+
     useEffect(() => {
         subscribeToMessages();
         return () => unsubscribeFromMessages();
-    }, [    useEffect(() => {
-        subscribeToMessages();
-        return () => unsubscribeFromMessages();
-    }, [socket,selectedUser])])
+    }, [socket, selectedUser])
+
+    useEffect(() => {
+        if(socket){
+            socket.on("userTyping", (data: {senderId: string, isTyping: boolean}) => {
+                if(data.senderId !== authUser?._id){
+                    setTypingUser(prev =>
+                        data.isTyping
+                        ? [...prev, data.senderId]
+                        : prev.filter(id => id !== data.senderId)
+                    )
+                }
+            })
+        }
+    }, [socket, selectedUser])
     
     const value = {
         selectedUser,
@@ -122,6 +167,11 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         setUnseenMessages,
         sendMessage,
         getMessages,
+        typingUser,
+        handleInputChange,
+        isTyping,
+        input,
+        setInput,
     } as ChatContextType
         
     

@@ -9,7 +9,7 @@ import type { ChatContextType } from '../../context/ChatContext'
 
 const Sidebar = () => {
 
-    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages} = useContext(ChatContext) as ChatContextType
+    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages, typingUser} = useContext(ChatContext) as ChatContextType
     
     const navigate = useNavigate()
 
@@ -51,7 +51,13 @@ const Sidebar = () => {
                                 <p>{user.name as string}</p>
                                 {
                                     onlineUsers.includes(user._id)
-                                    ? <span className='text-green-400 text-xs'>Online</span>
+                                    ? ( 
+                                        <div className='flex items-center gap-1'>
+                                            <span className='text-green-400 text-xs'>Online</span>
+                                            {typingUser.includes(user._id) && (
+                                                <span className='text-gray-300 text-xs'>печатает...</span>
+                                            )}
+                                        </div>)
                                     : <span className='text-neutral-400 text-xs'>Offline</span>
                                 }
                             </div>

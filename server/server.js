@@ -6,6 +6,7 @@ import { connectDB } from './lib/db.js'
 import userRouter from './routes/userRoutes.js'
 import messageRouter from './routes/messageRoutes.js'
 import { Server } from 'socket.io'
+import User from './models/User.js'
 
 //create express app
 const app = express()
@@ -24,7 +25,16 @@ io.on("connection",(socket)=>{
     const userId = socket.handshake.query.userId;
     console.log("A user connected", userId)
 
-    if(userId){ userSocketMap[userId] = socket.id }
+    if(userId){ 
+        userSocketMap[userId] = socket.id 
+        User.findByIdAndUpdate(userId, {lastSeen: Date.now()})
+        .then(()=>{
+            console.log("User last seen updated", userId)
+        })
+        .catch((error)=>{
+            console.log(error.message)
+        })
+    }
 
     //Emit online users to all connected clients
     io.emit("getOnlineUsers", Object.keys(userSocketMap))
@@ -33,6 +43,14 @@ io.on("connection",(socket)=>{
         console.log("A user disconnected", userId)
         delete userSocketMap[userId]
         io.emit("getOnlineUsers", Object.keys(userSocketMap))
+        User.findByIdAndUpdate(userId, {lastSeen: Date.now()})
+    })
+
+    socket.on("typing",(data)=>{
+        socket.to(userSocketMap[data.receiverId]).emit("userTyping",{
+            senderId:userId,
+            isTyping: data.isTyping
+        }) 
     })
 })
 
