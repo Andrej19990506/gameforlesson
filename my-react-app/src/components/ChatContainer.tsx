@@ -10,13 +10,71 @@ import toast from 'react-hot-toast'
 import EmojiPicker from 'emoji-picker-react';
 
 const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput} = useContext(ChatContext) as ChatContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
     const handleEmojiClick = (emojiObject: any) => {
         setInput(input + emojiObject.emoji);
         setShowEmojiPicker(false);
+    };
+
+    // Компонент для отображения статуса сообщения
+    const MessageStatus = ({ status, messageId, seen, messageIndex }: { status?: string, messageId: string, seen?: boolean, messageIndex: number }) => {
+        if (!status) return null;
+        
+        // Проверяем, есть ли новые сообщения после этого
+        const hasNewerMessages = messages.slice(messageIndex + 1).some(msg => msg.senderId !== authUser?._id);
+        
+        switch (status) {
+            case 'sending':
+                return (
+                    <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-gray-400"></div>
+                    </div>
+                );
+            case 'sent':
+                return (
+                    <div className="flex items-center">
+                        {seen && !hasNewerMessages ? (
+                            // Две галочки - прочитано (только если нет новых сообщений)
+                            <div className="flex items-center gap-1">
+                                <div className="flex">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400">
+                                        <polyline points="20,6 9,17 4,12"></polyline>
+                                    </svg>
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-blue-400 -ml-1">
+                                        <polyline points="20,6 9,17 4,12"></polyline>
+                                    </svg>
+                                </div>
+                                <span className="text-gray-400 text-xs">Просмотрено</span>
+                            </div>
+                        ) : seen ? (
+                            // Никаких галочек - прочитано, но есть новые сообщения
+                            null
+                        ) : (
+                            // Одна галочка - отправлено, но не прочитано
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                                <polyline points="20,6 9,17 4,12"></polyline>
+                            </svg>
+                        )}
+                    </div>
+                );
+            case 'error':
+                return (
+                    <button 
+                        onClick={() => retryMessage(messageId)}
+                        className="flex items-center text-red-400 hover:text-red-300"
+                        title="Повторить отправку"
+                    >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"></path>
+                        </svg>
+                    </button>
+                );
+            default:
+                return null;
+        }
     };
 
     //function to handle send message
@@ -79,11 +137,19 @@ const ChatContainer = () => {
                 
                 {messages.filter(msg => msg && msg.senderId).map((msg, index) => (
                     <div key={index} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"}`}>
-                            {msg.image ? (
-                                <img src={msg.image} alt='image' className='max-w-[230px] border border-gray-700 rounded-lg overflow-hidden mb-8' />
-                            ) : (
-                                <p className={`p-2 max-w-[200px] md:text-sm font-light rounded-lg mb-8 break-words bg-violet-500/30 text-white ${msg.senderId === authUser?._id ? 'rounded-br-none' : 'rounded-bl-none'}`}>{msg.text}</p>
-                            )}
+                            <div className="flex flex-col items-end">
+                                {msg.image ? (
+                                    <img src={msg.image} alt='image' className='max-w-[230px] border border-gray-700 rounded-lg overflow-hidden mb-2' />
+                                ) : (
+                                    <p className={`p-2 max-w-[200px] md:text-sm font-light rounded-lg mb-2 break-words bg-violet-500/30 text-white ${msg.senderId === authUser?._id ? 'rounded-br-none' : 'rounded-bl-none'}`}>{msg.text}</p>
+                                )}
+                                {/* Статус сообщения только для своих сообщений */}
+                                {msg.senderId === authUser?._id && (
+                                    <div className="mb-6">
+                                        <MessageStatus status={msg.status} messageId={msg._id} seen={msg.seen} messageIndex={index} />
+                                    </div>
+                                )}
+                            </div>
                             <div className='text-center text-xs'>
                                 <img src={msg.senderId === authUser?._id ? authUser?.profilePic || assets.avatar_icon : selectedUser.profilePic || assets.avatar_icon} alt='send' className='w-7 rounded-full' />
                                 <p className='text-gray-500'>{formatMessageTime(msg.createdAt)}</p>

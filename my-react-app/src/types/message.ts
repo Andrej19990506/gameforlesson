@@ -1,3 +1,5 @@
+export type MessageStatus = 'sending' | 'sent' | 'error'
+
 export interface Message {
     _id: string
     text: string
@@ -6,5 +8,6 @@ export interface Message {
     receiverId: string
     seen: boolean
     createdAt: string
+    status?: MessageStatus
 }
 

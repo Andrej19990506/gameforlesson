@@ -17,7 +17,9 @@ export interface ChatContextType {
     unseenMessages: { [key: string]: number },
     setUnseenMessages: (unseenMessages: { [key: string]: number }) => void,
     sendMessage: (messageData: {text: string, image: string}) => void,
-    getMessages: (userId: string) => void
+    getMessages: (userId: string) => void,
+    retryMessage: (messageId: string) => void,
+    updateMessageSeen: (messageId: string) => void,
     typingUser: string[],
     handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
     isTyping: boolean,
@@ -60,6 +62,16 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
             const {data} = await axios.get(`/api/message/${userId}`)
             if(data.success){
                 setMessages(data.messages)
+                
+                // Отправляем события прочтения для всех непрочитанных сообщений от выбранного пользователя
+                data.messages.forEach((message: any) => {
+                    if (message.senderId === userId && !message.seen) {
+                        socket?.emit("messageSeen", {
+                            messageId: message._id,
+                            senderId: message.senderId
+                        });
+                    }
+                });
             }
         } catch (error: any) {
             toast.error(error.message)
@@ -69,18 +81,111 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
 
     //send message to a selected user
     const sendMessage = async (messageData: {text: string, image: string}) => {
+        if (!selectedUser) return;
+        
+        // Создаем временное сообщение со статусом "sending"
+        const tempMessage: Message = {
+            _id: `temp_${Date.now()}`,
+            text: messageData.text,
+            image: messageData.image,
+            senderId: authUser?._id || '',
+            receiverId: selectedUser._id,
+            seen: false,
+            createdAt: new Date().toISOString(),
+            status: 'sending'
+        };
+        
+        // Добавляем временное сообщение в UI
+        setMessages((prevMessages) => [...prevMessages, tempMessage]);
+        
         try {
-            const {data} = await axios.post(`/api/message/send/${selectedUser?._id}`, messageData)
+            const {data} = await axios.post(`/api/message/send/${selectedUser._id}`, messageData)
             if(data.success){
-                setMessages((prevMessages) => [...prevMessages, data.message])
+                // Заменяем временное сообщение на реальное со статусом "sent"
+                const sentMessage = { ...data.message, status: 'sent' as const, seen: false };
+                setMessages((prevMessages) => 
+                    prevMessages.map(msg => 
+                        msg._id === tempMessage._id ? sentMessage : msg
+                    )
+                );
             }else{
+                // Обновляем статус на "error"
+                setMessages((prevMessages) => 
+                    prevMessages.map(msg => 
+                        msg._id === tempMessage._id ? { ...msg, status: 'error' as const } : msg
+                    )
+                );
                 toast.error(data.message)
             }
         } catch (error: any) {
+            // Обновляем статус на "error"
+            setMessages((prevMessages) => 
+                prevMessages.map(msg => 
+                    msg._id === tempMessage._id ? { ...msg, status: 'error' as const } : msg
+                )
+            );
             toast.error(error.message)
             console.log(error)
         }
     }
+
+    //function to retry sending a failed message
+    const retryMessage = async (messageId: string) => {
+        const message = messages.find(msg => msg._id === messageId);
+        if (!message || !selectedUser) return;
+        
+        // Обновляем статус на "sending"
+        setMessages((prevMessages) => 
+            prevMessages.map(msg => 
+                msg._id === messageId ? { ...msg, status: 'sending' as const } : msg
+            )
+        );
+        
+        try {
+            const {data} = await axios.post(`/api/message/send/${selectedUser._id}`, {
+                text: message.text,
+                image: message.image
+            });
+            if(data.success){
+                // Заменяем сообщение на новое со статусом "sent"
+                const sentMessage = { ...data.message, status: 'sent' as const, seen: false };
+                setMessages((prevMessages) => 
+                    prevMessages.map(msg => 
+                        msg._id === messageId ? sentMessage : msg
+                    )
+                );
+            }else{
+                // Обновляем статус на "error"
+                setMessages((prevMessages) => 
+                    prevMessages.map(msg => 
+                        msg._id === messageId ? { ...msg, status: 'error' as const } : msg
+                    )
+                );
+                toast.error(data.message)
+            }
+        } catch (error: any) {
+            // Обновляем статус на "error"
+            setMessages((prevMessages) => 
+                prevMessages.map(msg => 
+                    msg._id === messageId ? { ...msg, status: 'error' as const } : msg
+                )
+            );
+            toast.error(error.message)
+            console.log(error)
+        }
+    }
+
+    //function to update message seen status
+    const updateMessageSeen = (messageId: string) => {
+        console.log("updateMessageSeen called for:", messageId);
+        setMessages((prevMessages) => {
+            const updated = prevMessages.map(msg => 
+                msg._id === messageId ? { ...msg, seen: true } : msg
+            );
+            console.log("Updated messages:", updated);
+            return updated;
+        });
+    };
 
     //finction to subscribe to messages for a selected user
     const subscribeToMessages = async () => {
@@ -94,6 +199,12 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                 newMessage.seen = true
                 setMessages((prevMessages) => [...prevMessages, newMessage])
                 axios.put(`/api/message/mark/${newMessage._id}`);
+                
+                // Отправляем событие прочтения отправителю
+                socket.emit("messageSeen", {
+                    messageId: newMessage._id,
+                    senderId: newMessage.senderId
+                });
             }
             else{
                 setUnseenMessages((prevUnseenMessages) => ({
@@ -102,12 +213,26 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                 }))
             }
         })
+
+        // Обработчик события прочтения сообщения
+        socket.on("messageSeen", (data: {messageId: string, senderId: string}) => {
+            console.log("messageSeen received:", data, "authUser._id:", authUser?._id);
+            // Обновляем статус прочтения только для сообщений от текущего пользователя
+            // data.senderId - это ID отправителя сообщения (наш ID)
+            if(data.senderId === authUser?._id) {
+                console.log("Updating message seen status for:", data.messageId);
+                updateMessageSeen(data.messageId);
+            }
+        })
         
     }
 
     //function to unsubscribe from messages for a selected user
     const unsubscribeFromMessages = () => {
-        if(socket) socket.off("newMessage")
+        if(socket) {
+            socket.off("newMessage")
+            socket.off("messageSeen")
+        }
     }
 
     //function to handle input change
@@ -166,6 +291,8 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         setUnseenMessages,
         sendMessage,
         getMessages,
+        retryMessage,
+        updateMessageSeen,
         typingUser,
         handleInputChange,
         isTyping,

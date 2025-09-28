@@ -52,6 +52,17 @@ io.on("connection",(socket)=>{
             isTyping: data.isTyping
         }) 
     })
+
+    // Обработчик события прочтения сообщения
+    socket.on("messageSeen",(data)=>{
+        // Отправляем подтверждение прочтения отправителю сообщения
+        // data.senderId - ID отправителя сообщения
+        // userId - ID пользователя, который прочитал сообщение
+        socket.to(userSocketMap[data.senderId]).emit("messageSeen",{
+            messageId: data.messageId,
+            senderId: data.senderId // ID отправителя сообщения
+        })
+    })
 })
 
 
