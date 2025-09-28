@@ -5,6 +5,7 @@ import type { User } from '../types/user'
 import { AuthContext } from '../../context/AuthContext'
 import { ChatContext } from '../../context/ChatContext'
 import type { ChatContextType } from '../../context/ChatContext'
+import { formatLastSeen } from '../lib/utils'
 
 
 const Sidebar = () => {
@@ -58,7 +59,7 @@ const Sidebar = () => {
                                                 <span className='text-gray-300 text-xs'>печатает...</span>
                                             )}
                                         </div>)
-                                    : <span className='text-neutral-400 text-xs'>Offline</span>
+                                    : <span className='text-neutral-400 text-xs'>Был(а) в сети {formatLastSeen(user.lastSeen)}</span>
                                 }
                             </div>
                             {unseenMessages[user._id]>0 && <p className='absolute top-4 right-4 text-xs h-5 w-5 flex justify-center items-center rounded-full bg-violet-500/50'>{unseenMessages[user._id]}</p>}
