@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from "react";
 import type { User } from "../src/types/user";
 import { AuthContext } from "./AuthContext";
-import type { Socket } from "socket.io-client";
-import type { AxiosInstance } from "axios";
 import { toast } from "react-hot-toast";
 import type { Message } from "../src/types/message.ts";
 import type { AuthContextType } from "../src/types/auth.ts";

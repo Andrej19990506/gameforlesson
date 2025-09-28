@@ -1,6 +1,5 @@
-
 import assets from '../assets/assets'
-import { useRef, useEffect, useContext, useState } from 'react'
+import { useRef, useEffect, useContext } from 'react'
 import { formatMessageTime } from '../lib/utils'
 import type { ChatContextType } from '../../context/ChatContext'
 import { ChatContext } from '../../context/ChatContext'
@@ -10,8 +9,8 @@ import { formatLastSeen } from '../lib/utils'
 import toast from 'react-hot-toast'
 
 const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, isTyping, input} = useContext(ChatContext) as ChatContextType
-    const{onlineUsers, authUser, socket} = useContext(AuthContext) as AuthContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input} = useContext(ChatContext) as ChatContextType
+    const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
 
     //function to handle send message
     const handleSendMessage = async () => {
