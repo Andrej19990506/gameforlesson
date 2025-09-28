@@ -10,7 +10,7 @@ import toast from 'react-hot-toast'
 import EmojiPicker from 'emoji-picker-react';
 
 const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage} = useContext(ChatContext) as ChatContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
 
@@ -125,7 +125,13 @@ const ChatContainer = () => {
                     <p className='flex-1 text-lg text-white flex items-center gap-2'>
                         {selectedUser.name}
                         {onlineUsers.includes(selectedUser._id)
-                         ? <span className='w-2 h-2 rounded-full bg-green-500'></span>
+                         ? ( 
+                             <div className='flex items-center gap-1'>
+                                 <span className='w-2 h-2 rounded-full bg-green-500'></span>
+                                 {typingUser.includes(selectedUser._id) && (
+                                     <span className='text-gray-300 text-xs'>печатает...</span>
+                                 )}
+                             </div>)
                          : <span className='text-xs text-gray-400'> Был(а) в сети {formatLastSeen(selectedUser.lastSeen)}</span>
                          }
                     </p>
@@ -156,6 +162,36 @@ const ChatContainer = () => {
                             </div>
                         </div>
                     ))}
+                    
+                    {/* Индикатор "печатает..." - только для первого сообщения после нашего */}
+                    {typingUser.includes(selectedUser._id) && (() => {
+                        // Проверяем, есть ли сообщения от собеседника после нашего последнего сообщения
+                        const lastMessageFromUs = [...messages].reverse().find(msg => msg.senderId === authUser?._id);
+                        const hasNewMessagesFromThem = lastMessageFromUs ? 
+                            messages.some(msg => msg.senderId === selectedUser._id && new Date(msg.createdAt) > new Date(lastMessageFromUs.createdAt)) : 
+                            false;
+                        
+                        // Показываем индикатор только если нет новых сообщений от собеседника после нашего последнего
+                        return !hasNewMessagesFromThem ? (
+                            <div className="absolute bottom-20 left-3 flex items-end gap-2">
+                                <div className='text-center text-xs'>
+                                    <img src={selectedUser.profilePic || assets.avatar_icon} alt='user' className='w-7 rounded-full' />
+                                </div>
+                                <div className="flex flex-col items-start">
+                                    <div className="p-2 max-w-[200px] md:text-sm font-light rounded-lg bg-gray-500/30 text-white rounded-bl-none">
+                                        <div className="flex items-center gap-1">
+                                            <span className="text-xs text-gray-300">печатает</span>
+                                            <div className="flex space-x-1">
+                                                <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce"></div>
+                                                <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.1s'}}></div>
+                                                <div className="w-1 h-1 bg-gray-400 rounded-full animate-bounce" style={{animationDelay: '0.2s'}}></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ) : null;
+                    })()}
                     <div ref={scrollEnd}></div>
                 </div>
                 {/*Chat bottom-area*/}
