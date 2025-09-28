@@ -17,6 +17,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
     const [socket, setSocket] = useState<Socket | null>(null);
     const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+    const [isLoading, setIsLoading] = useState(true);
 
     //check if user is authenticated and if so, set the user data and connect the socket
     const checkAuth = async () => {
@@ -28,6 +29,8 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
             }
         } catch (error: any) {
             toast.error(error.message)
+        } finally {
+            setIsLoading(false)
         }
     }
 
@@ -97,8 +100,10 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     useEffect(() => {
        if(token){
         axios.defaults.headers.common['token'] = token
+        checkAuth()
+       } else {
+        setIsLoading(false)
        }
-       checkAuth()
     }, [token])
 
     const value = {
@@ -116,6 +121,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
         updateProfile,
         checkAuth,
         connectSocket,
+        isLoading,
     } as AuthContextType
     
     return(

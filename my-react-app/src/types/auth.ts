@@ -18,4 +18,5 @@ export interface AuthContextType {
     updateProfile: (body: {name: string, bio: string, profilePic: string}) => Promise<void>
     checkAuth: () => Promise<void>
     connectSocket: (userData: User) => void
+    isLoading: boolean
 }

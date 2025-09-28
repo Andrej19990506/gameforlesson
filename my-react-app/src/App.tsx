@@ -9,7 +9,16 @@ import { useContext } from 'react';
 import type { User } from './types/user';
 
 function App() {
-  const {authUser} = useContext(AuthContext) as {authUser: User | null}
+  const {authUser, isLoading} = useContext(AuthContext) as {authUser: User | null, isLoading: boolean}
+  
+  if (isLoading) {
+    return (
+      <div className="bg-[url('/bgImage.svg')] bg-cover bg-center bg-no-repeat min-h-screen flex items-center justify-center">
+        <div className="text-white text-xl">Загрузка...</div>
+      </div>
+    )
+  }
+  
   return (
     <div className="bg-[url('/bgImage.svg')] bg-cover bg-center bg-no-repeat">
       <Toaster />

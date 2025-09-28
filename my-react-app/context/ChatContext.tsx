@@ -20,7 +20,8 @@ export interface ChatContextType {
     getMessages: (userId: string) => void
     typingUser: string[],
     handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
-    isTyping: boolean
+    isTyping: boolean,
+    setInput: (input: string) => void,
     input: string
 }
 
