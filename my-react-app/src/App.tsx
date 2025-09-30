@@ -7,13 +7,10 @@ import {Toaster} from 'react-hot-toast'
 import { AuthContext } from '../context/AuthContext';
 import { useContext } from 'react';
 import type { User } from './types/user';
-import SplashScreen from './components/SplashScreen';
 
 function App() {
   const {authUser, isLoading} = useContext(AuthContext) as {authUser: User | null, isLoading: boolean}
   
-  // Показываем заглушку вместо приложения
-  return <SplashScreen />
   
   if (isLoading) {
     return (
