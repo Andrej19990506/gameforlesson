@@ -11,7 +11,7 @@ import MenuBar from './MenuBar'
 
 const Sidebar = () => {
 
-    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages, typingUser, lastMessages} = useContext(ChatContext) as ChatContextType
+    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages, typingUser, lastMessages, isLoadingUsers} = useContext(ChatContext) as ChatContextType
     
     const navigate = useNavigate()
 
@@ -79,7 +79,22 @@ const Sidebar = () => {
                 </div>
             </div>
             <div className='flex flex-col'>
-                {sortedUsers.map((user, index) => {
+                {isLoadingUsers ? (
+                    // Скелетоны для загрузки - показываем столько, сколько пользователей или минимум 3
+                    Array.from({ length: Math.max(users.length, 3) }).map((_, index) => (
+                        <div key={index} className="relative flex items-center gap-2 p-2 pl-4 rounded animate-pulse">
+                            {/* Скелетон аватара */}
+                            <div className="w-[35px] h-[35px] bg-gray-700 rounded-full"></div>
+                            
+                            {/* Скелетон контента */}
+                            <div className="flex flex-col gap-2 flex-1">
+                                <div className="h-4 bg-gray-700 rounded w-3/4"></div>
+                                <div className="h-3 bg-gray-700 rounded w-1/2"></div>
+                            </div>
+                        </div>
+                    ))
+                ) : (
+                    sortedUsers.map((user, index) => {
                     return (
                         <div onClick={() => {setSelectedUser(user as unknown as User); setUnseenMessages({...unseenMessages, [user._id]: 0})}}
                             key={index} className={`relative flex items-center gap-2 p-2 pl-4 rounded cursor-pointer max-sm:text-sm transition-all duration-300 ${selectedUser?._id === user._id && 'bg-[#282142]/50'} ${unseenMessages[user._id] > 0 && 'bg-gradient-to-r from-violet-500/30 to-purple-500/30 border-l-4 border-violet-400'}`}>
@@ -174,7 +189,8 @@ const Sidebar = () => {
                                 {unseenMessages[user._id]>0 && <p className='absolute top-4 right-4 text-xs h-6 w-6 flex justify-center items-center rounded-full bg-gradient-to-r from-violet-500 to-purple-500 text-white font-bold shadow-lg ring-2 ring-violet-300/50'>{unseenMessages[user._id]}</p>}
                     </div>
                     );
-                })}
+                }))
+                }
             </div>
         </div>
         </>

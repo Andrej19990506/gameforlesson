@@ -28,7 +28,8 @@ export interface ChatContextType {
     handleInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void,
     isTyping: boolean,
     setInput: (input: string) => void,
-    input: string
+    input: string,
+    isLoadingUsers: boolean
 }
 
 export const ChatContext = createContext<ChatContextType | null>(null)
@@ -41,6 +42,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     const [unseenMessages, setUnseenMessages] = useState<{ [key: string]: number }>({})
     const [lastMessages, setLastMessages] = useState<{ [key: string]: Message }>({})
     const [typingUser, setTypingUser] = useState<string[]>([]);
+    const [isLoadingUsers, setIsLoadingUsers] = useState(false)
     const {socket, axios, authUser} = useContext(AuthContext) as AuthContextType
     const [input, setInput] = useState('')
     const [isTyping, setIsTyping] = useState(false)
@@ -50,6 +52,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     //get all users for sidebar
     const getUsers = async () => {
         try {
+            setIsLoadingUsers(true)
             const {data} = await axios.get('/api/message/users')
             if(data.success){
                 setUsers(data.users)
@@ -59,6 +62,8 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         } catch (error: any) {
             toast.error(error.message)
             console.log(error)
+        } finally {
+            setIsLoadingUsers(false)
         }
     }
 
@@ -445,6 +450,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         isTyping,
         input,
         setInput,
+        isLoadingUsers,
     } as ChatContextType
         
     

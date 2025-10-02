@@ -7,17 +7,14 @@ import {Toaster} from 'react-hot-toast'
 import { AuthContext } from '../context/AuthContext';
 import { useContext } from 'react';
 import type { User } from './types/user';
+import LoadingScreen from './components/LoadingScreen';
 
 function App() {
   const {authUser, isLoading} = useContext(AuthContext) as {authUser: User | null, isLoading: boolean}
   
   
   if (isLoading) {
-    return (
-      <div className="bg-[url('/bgImage.svg')] bg-cover bg-center bg-no-repeat min-h-screen flex items-center justify-center">
-        <div className="text-white text-xl">Загрузка...</div>
-      </div>
-    )
+    return <LoadingScreen />
   }
   
   return (
