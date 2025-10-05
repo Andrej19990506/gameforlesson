@@ -13,10 +13,24 @@ import jwt from 'jsonwebtoken'
 const app = express()
 const server = http.createServer(app)
 
+// CORS origins - временно разрешаем все домены для продакшна
+const allowedOrigins = process.env.NODE_ENV === 'production' 
+    ? true // Разрешить все домены в продакшне
+    : [
+        process.env.FRONTEND_URL || "http://localhost:5173",
+        "https://gameforlesson.vercel.app",
+        "http://localhost:5173",
+        /^https:\/\/.*\.vercel\.app$/, // Любые поддомены Vercel
+        /^https:\/\/.*\.vercel\.dev$/  // Vercel preview URLs
+    ];
+
+console.log('🌐 [CORS] Режим:', process.env.NODE_ENV);
+console.log('🌐 [CORS] Разрешенные домены:', allowedOrigins);
+
 //initialize socket.io
 export const io = new Server(server,{
     cors: {
-        origin: process.env.FRONTEND_URL || "http://localhost:5173",
+        origin: allowedOrigins,
         methods: ["GET", "POST"],
         credentials: true
     }
@@ -124,7 +138,10 @@ io.on("connection",(socket)=>{
 app.use(express.json({limit:'100mb'}))
 app.use(express.text({limit:'10mb'})) // Для поддержки sendBeacon
 app.use(express.urlencoded({ extended: true, limit: '100mb' })) // Для FormData
-app.use(cors())
+app.use(cors({
+    origin: allowedOrigins,
+    credentials: true
+}))
 
 //routes setup
 app.use("/api/status",(req,res)=> res.status(200).send("Server is running"))
