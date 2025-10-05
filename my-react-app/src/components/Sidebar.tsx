@@ -99,7 +99,15 @@ const Sidebar = () => {
                         <div onClick={() => {setSelectedUser(user as unknown as User); setUnseenMessages({...unseenMessages, [user._id]: 0})}}
                             key={index} className={`relative flex items-center gap-2 p-2 pl-4 rounded cursor-pointer max-sm:text-sm transition-all duration-300 ${selectedUser?._id === user._id && 'bg-[#282142]/50'} ${unseenMessages[user._id] > 0 && 'bg-gradient-to-r from-violet-500/30 to-purple-500/30 border-l-4 border-violet-400'}`}>
                                 <div className='relative'>
-                            <img src={user?.profilePic|| assets.avatar_icon} alt='user' className='w-[35px] aspect-[1/1] rounded-full' />
+                            <img 
+                                src={`${user?.profilePic|| assets.avatar_icon}?v=${Date.now()}`} 
+                                alt='user' 
+                                className='w-[35px] h-[35px] rounded-full object-cover object-center'
+                                loading="lazy"
+                                onError={(e) => {
+                                    e.currentTarget.src = assets.avatar_icon;
+                                }}
+                            />
                                     {onlineUsers.includes(user._id) ? (
                                         <div className='absolute bottom-0 right-0 w-3 h-3 bg-green-400 rounded-full border-2 border-[#8185B2]/10'></div>
                                     ) : (() => {
@@ -159,7 +167,17 @@ const Sidebar = () => {
                                                 
                                                 return (
                                                     <div className='flex items-center gap-1'>
-                                                        <p className='text-xs text-gray-400 truncate'>
+                                                        <p 
+                                                            className='text-xs text-gray-400'
+                                                            style={{
+                                                                display: '-webkit-box',
+                                                                WebkitLineClamp: 2,
+                                                                WebkitBoxOrient: 'vertical',
+                                                                overflow: 'hidden',
+                                                                wordBreak: 'break-word',
+                                                                lineHeight: '1.2'
+                                                            }}
+                                                        >
                                                             {isFromMe ? 'Вы: ' : ''}{messageText}
                                                         </p>
                                                         {isFromMe && (

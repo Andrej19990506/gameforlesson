@@ -6,11 +6,14 @@ import { AuthContext } from "../../context/AuthContext"
 import { ArrowLeft, Camera, Edit3, Trash2 } from "lucide-react"
 import axios from "axios"
 import toast from "react-hot-toast"
+import ImageCropper from "../components/ImageCropper"
 
 const ProfilePage = () => {
-  const {authUser, updateProfile, logout} = useContext(AuthContext) as {authUser: User | null, updateProfile: (body: {name: string, bio: string, profilePic: string}) => Promise<void>, logout: () => void}
+  const {authUser, updateProfile, logout, setAuthUser} = useContext(AuthContext) as {authUser: User | null, updateProfile: (body: {name: string, bio: string, profilePic: string}) => Promise<void>, logout: () => void, setAuthUser: (user: User | null) => void}
 
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
+  const [showImageCropper, setShowImageCropper] = useState(false)
+  const [imageToCrop, setImageToCrop] = useState<File | null>(null)
   const [isEditing, setIsEditing] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
@@ -19,19 +22,126 @@ const ProfilePage = () => {
   const [name, setName] = useState(authUser?.name || '')
   const [bio, setBio] = useState(authUser?.bio || '')
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    if (!file.type.startsWith('image/')) {
+      toast.error('Пожалуйста, выберите изображение');
+      return;
+    }
+    
+    // Проверяем размер файла (максимум 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Размер файла не должен превышать 10MB');
+      return;
+    }
+    
+    // Показываем обрезку изображения
+    setImageToCrop(file);
+    setShowImageCropper(true);
+    
+    // Очищаем input
+    e.target.value = '';
+  };
+
+  const handleCropComplete = (croppedFile: File) => {
+    setSelectedImage(croppedFile);
+    setShowImageCropper(false);
+    setImageToCrop(null);
+    toast.success('Изображение обрезано! Теперь сохраните изменения.');
+  };
+
+  const handleCropCancel = () => {
+    setShowImageCropper(false);
+    setImageToCrop(null);
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if(!selectedImage){
-      await updateProfile({name: name, bio: bio, profilePic: authUser?.profilePic || ''})
-      navigate('/')
-      return
-    }
-    const reader = new FileReader()
-    reader.readAsDataURL(selectedImage)
-    reader.onload = async () => {
-      const base64Image = reader.result as string
-      await updateProfile({name: name, bio, profilePic: base64Image})
-      navigate('/')
+    
+    console.log('🚀 [ProfilePage] Начало handleSubmit:', {
+      selectedImage: selectedImage ? selectedImage.name : 'нет',
+      name: name,
+      bio: bio,
+      isEditing: isEditing
+    });
+    
+    try {
+      if (!selectedImage) {
+        console.log('📝 [ProfilePage] Обновление без изображения');
+        // Если изображение не выбрано, обновляем только текст
+        await updateProfile({name: name, bio: bio, profilePic: authUser?.profilePic || ''})
+        console.log('✅ [ProfilePage] Обновление без изображения завершено, переход в чат');
+        navigate('/')
+        return
+      }
+      
+      console.log('📷 [ProfilePage] Обновление с изображением:', {
+        fileName: selectedImage.name,
+        fileSize: selectedImage.size,
+        fileType: selectedImage.type
+      });
+      
+      // Проверяем размер файла (максимум 10MB)
+      if (selectedImage.size > 10 * 1024 * 1024) {
+        console.log('❌ [ProfilePage] Файл слишком большой:', selectedImage.size);
+        toast.error('Размер файла не должен превышать 10MB')
+        return
+      }
+      
+      // Создаем FormData для отправки файла напрямую
+      const formData = new FormData();
+      formData.append('profilePic', selectedImage);
+      formData.append('name', name);
+      formData.append('bio', bio);
+      
+      console.log('📤 [ProfilePage] FormData создан, отправляем запрос...');
+      
+      // Получаем токен из localStorage
+      const token = localStorage.getItem('token');
+      if (!token) {
+        console.log('❌ [ProfilePage] Токен не найден');
+        toast.error('Токен аутентификации не найден. Пожалуйста, войдите в систему заново.');
+        navigate('/login');
+        return;
+      }
+      
+      console.log('🔐 [ProfilePage] Токен найден, отправляем запрос на сервер...');
+      
+      // Отправляем файл напрямую на сервер
+      const response = await fetch('http://localhost:5000/api/user/update-profile', {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
+        body: formData
+      });
+      
+      console.log('📡 [ProfilePage] Ответ сервера получен:', {
+        status: response.status,
+        ok: response.ok
+      });
+      
+      const result = await response.json();
+      console.log('📤 [ProfilePage] Ответ сервера:', result);
+      
+      if (response.ok && result.success) {
+        console.log('✅ [ProfilePage] Профиль успешно обновлен:', result);
+        
+        console.log('🔄 [ProfilePage] Обновляем локальное состояние...');
+        // Обновляем локальное состояние через контекст
+        setAuthUser(result.user);
+        
+        console.log('🏠 [ProfilePage] Переходим в чат...');
+        navigate('/')
+      } else {
+        console.error('❌ [ProfilePage] Ошибка сервера:', result.message);
+        toast.error(result.message || 'Ошибка при обновлении профиля');
+      }
+    } catch (error) {
+      console.error('❌ [ProfilePage] Ошибка при обновлении профиля:', error);
+      toast.error('Ошибка при обновлении профиля');
     }
   }
 
@@ -108,7 +218,11 @@ const ProfilePage = () => {
             <img 
               src={selectedImage ? URL.createObjectURL(selectedImage) : authUser?.profilePic || assets.avatar_icon} 
               alt="Profile" 
-              className='w-32 h-32 rounded-full border-4 border-violet-500/30 shadow-lg'
+              className='w-32 h-32 rounded-full border-4 border-violet-500/30 shadow-lg object-cover'
+              loading="eager"
+              onError={(e) => {
+                e.currentTarget.src = assets.avatar_icon;
+              }}
             />
             <label 
               htmlFor='avatar' 
@@ -116,7 +230,7 @@ const ProfilePage = () => {
             >
               <Camera size={16} className="text-white" />
               <input 
-                onChange={(e) => setSelectedImage(e.target.files?.[0] || null)}
+                onChange={handleImageSelect}
                 type="file" 
                 id='avatar' 
                 accept='image/png, image/jpg, image/jpeg' 
@@ -133,11 +247,14 @@ const ProfilePage = () => {
           <div className='flex items-center justify-between mb-6'>
             <h3 className='text-lg font-semibold text-white'>Информация о профиле</h3>
             <button
-              onClick={() => setIsEditing(!isEditing)}
+              onClick={() => {
+                console.log('🔄 [ProfilePage] Переключение режима редактирования:', !isEditing);
+                setIsEditing(!isEditing);
+              }}
               className='flex items-center gap-2 px-3 py-2 bg-violet-600 hover:bg-violet-700 text-white rounded-lg transition-colors'
             >
               <Edit3 size={16} />
-              {isEditing ? 'Отмена' : ''}
+              {isEditing ? 'Отмена' : 'Редактировать'}
             </button>
           </div>
 
@@ -175,6 +292,15 @@ const ProfilePage = () => {
               <div className='flex gap-3 pt-4'>
                 <button 
                   type="submit" 
+                  onClick={() => {
+                    console.log('💾 [ProfilePage] Клик по кнопке "Сохранить изменения"');
+                    console.log('💾 [ProfilePage] Состояние формы:', {
+                      isEditing: isEditing,
+                      name: name,
+                      bio: bio,
+                      selectedImage: selectedImage ? selectedImage.name : 'нет'
+                    });
+                  }}
                   className="flex-1 bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-700 hover:to-purple-700 text-white p-3 rounded-lg font-medium transition-all duration-200 shadow-lg hover:shadow-xl"
                 >
                   Сохранить изменения
@@ -282,6 +408,15 @@ const ProfilePage = () => {
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Компонент обрезки изображений */}
+      {showImageCropper && imageToCrop && (
+        <ImageCropper
+          imageFile={imageToCrop}
+          onCropComplete={handleCropComplete}
+          onCancel={handleCropCancel}
+        />
       )}
     </div>
   )

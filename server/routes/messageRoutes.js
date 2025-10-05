@@ -1,14 +1,15 @@
 import express from "express";
 import { protectRoute } from "../middleware/auth.js";
-import { getUsersForSidebar, getMessages, markMessageAsSeen, sendMessage, deleteMessage, addReaction } from "../controllers/messageController.js";
+import { getUsersForSidebar, getMessages, markMessageAsSeen, sendMessage, deleteMessage, addReaction, saveScrollPosition, uploadSingle } from "../controllers/messageController.js";
 
 export const messageRouter = express.Router();
 
 messageRouter.get("/users", protectRoute, getUsersForSidebar);
 messageRouter.get("/:id", protectRoute, getMessages);
 messageRouter.put("/mark/:id", protectRoute, markMessageAsSeen);
-messageRouter.post("/send/:id", protectRoute, sendMessage);
+messageRouter.post("/send/:id", protectRoute, uploadSingle, sendMessage);
 messageRouter.delete("/:id", protectRoute, deleteMessage);
 messageRouter.post("/reaction/:messageId", protectRoute, addReaction);
+messageRouter.post("/save-scroll-position", protectRoute, saveScrollPosition);
 
 export default messageRouter;

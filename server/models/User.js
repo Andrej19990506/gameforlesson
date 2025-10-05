@@ -7,6 +7,7 @@ const userSchema = new mongoose.Schema({
     profilePic: {type: String, default: ""},
     bio: {type: String},
     lastSeen: {type: Date, default: Date.now},
+    scrollPositions: {type: Map, of: Number, default: new Map()}, // userId -> scrollPosition
 }, {timestamps: true});
 
 const User = mongoose.model("User", userSchema)

@@ -42,8 +42,18 @@ export const useWebRTC = () => {
     
     console.log('🔌 Инициализация Socket для пользователя:', userId);
     
+    // Получаем токен из localStorage
+    const authToken = localStorage.getItem('token');
+    
+    if (!authToken) {
+      console.error('❌ [useWebRTC] Токен не найден для WebSocket подключения');
+      return null;
+    }
+    
     const socket = io('http://localhost:5000', {
-      query: { userId }
+      auth: {
+        token: authToken  // ✅ БЕЗОПАСНО! Передаем JWT токен
+      }
     });
     
     socketRef.current = socket;

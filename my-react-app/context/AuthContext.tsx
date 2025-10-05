@@ -6,7 +6,7 @@ import type { User } from "../src/types/user";
 import type { Socket } from "socket.io-client";
 import type { AuthContextType } from "../src/types/auth.ts";
 
-const backendUrl = import.meta.env.VITE_BACKEND_URL
+const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000'
 axios.defaults.baseURL = backendUrl
 
 export const AuthContext = createContext<AuthContextType | null>(null)
@@ -41,7 +41,8 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
             if(data.success){
                 setAuthUser(data.userData)
                 connectSocket(data.userData)
-                axios.defaults.headers.common['token'] = data.token
+                // Исправляем заголовок аутентификации
+                axios.defaults.headers.common['Authorization'] = `Bearer ${data.token}`
                 setToken(data.token)
                 localStorage.setItem('token', data.token)
                 toast.success(data.message)
@@ -61,7 +62,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
         setToken(null)
         setAuthUser(null)
         setOnlineUsers([])
-        axios.defaults.headers.common['token'] = null
+        axios.defaults.headers.common['Authorization'] = null
         toast.success('Logged out successfully')
         socket?.disconnect()
     }
@@ -69,12 +70,18 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     //Update user function to handle user profile updates
     const updateProfile = async (body: {name: string, bio: string, profilePic: string}) => {
         try {
-            const{data} = await axios.put('/api/auth/update-profile', body);
+            console.log('🔄 [AuthContext] updateProfile вызван с данными:', body);
+            const{data} = await axios.put('/api/user/update-profile', body);
+            console.log('📡 [AuthContext] Ответ сервера:', data);
             if(data.success){
+                console.log('✅ [AuthContext] Обновляем authUser:', data.user);
                 setAuthUser(data.user)
                 toast.success('User updated successfully')
+            } else {
+                console.log('❌ [AuthContext] Сервер вернул success: false');
             }
         } catch (error: any) {
+            console.error('❌ [AuthContext] Ошибка в updateProfile:', error);
             toast.error(error.message)
         }
     }
@@ -84,22 +91,48 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     const connectSocket = (userData: User) => {
         if(!userData||socket?.connected) return
         if(socket) socket.disconnect()
-        const newSocket = io(backendUrl,{
-            query:{
-                userId: userData._id
+        
+        // Получаем токен из localStorage или состояния
+        const authToken = token || localStorage.getItem('token');
+        
+        if (!authToken) {
+            console.error('❌ [AuthContext] Токен не найден для WebSocket подключения');
+            return;
+        }
+        
+        console.log('🔐 [AuthContext] Подключение WebSocket с аутентификацией для пользователя:', userData.name);
+        
+        const newSocket = io(backendUrl, {
+            auth: {
+                token: authToken  // ✅ БЕЗОПАСНО! Передаем JWT токен
             }
         });
+        
         newSocket.connect();
         setSocket(newSocket);
 
         newSocket.on("getOnlineUsers", (userIds) => {
+            console.log('👥 [AuthContext] Получен список онлайн пользователей:', userIds);
             setOnlineUsers(userIds)
+        });
+        
+        // Обработка ошибок аутентификации
+        newSocket.on("connect_error", (error) => {
+            console.error('❌ [AuthContext] Ошибка подключения WebSocket:', error.message);
+            if (error.message.includes('Authentication')) {
+                toast.error('Ошибка аутентификации WebSocket');
+                logout(); // Выходим из системы при ошибке аутентификации
+            }
+        });
+        
+        newSocket.on("disconnect", (reason) => {
+            console.log('🔌 [AuthContext] WebSocket отключен:', reason);
         });
     }
 
     useEffect(() => {
        if(token){
-        axios.defaults.headers.common['token'] = token
+        axios.defaults.headers.common['Authorization'] = `Bearer ${token}`
         checkAuth()
        } else {
         setIsLoading(false)

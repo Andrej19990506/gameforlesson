@@ -2,6 +2,25 @@ import User from "../models/User.js";
 import bcrypt from "bcryptjs";
 import { generateToken } from "../lib/utils.js";
 import cloudinary from "../lib/cloudinary.js";
+import multer from 'multer';
+
+// Настройка multer для обработки файлов в памяти
+const upload = multer({ 
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB максимум
+    },
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Только изображения разрешены'), false);
+        }
+    }
+});
+
+// Middleware для обработки одного файла
+export const uploadProfilePic = upload.single('profilePic');
 
 //signup new user
 export const signup = async (req, res) => {
@@ -60,21 +79,60 @@ export const signup = async (req, res) => {
  //controller to update user profile
 export const updateUserProfile = async (req, res) => {
     try {
-        const {profilePic, name, bio} = req.body;
-
+        const {name, bio} = req.body;
         const userid = req.user._id;
         let updatedUser;
 
-        if(!profilePic){
-           updatedUser = await User.findByIdAndUpdate(userid, {name, bio}, {new: true});
-        }else{
-            const upload = await cloudinary.uploader.upload(profilePic);
-            updatedUser = await User.findByIdAndUpdate(userid, {name, bio, profilePic: upload.secure_url}, {new: true});
+        console.log(`👤 [updateUserProfile] Обновление профиля для пользователя: ${userid}`);
+
+        if (!req.file) {
+            // Если изображение не загружено, обновляем только текст
+            console.log(`👤 [updateUserProfile] Обновление без изображения`);
+            updatedUser = await User.findByIdAndUpdate(userid, {name, bio}, {new: true});
+        } else {
+            // Обрабатываем изображение
+            console.log(`👤 [updateUserProfile] Обработка изображения:`, {
+                originalname: req.file.originalname,
+                mimetype: req.file.mimetype,
+                size: req.file.size
+            });
+            
+            // Загружаем файл напрямую в Cloudinary без конвертации в base64
+            const uploadResult = await new Promise((resolve, reject) => {
+                cloudinary.uploader.upload_stream(
+                    {
+                        resource_type: 'auto',
+                        quality: 90, // Высокое качество (0-100)
+                        fetch_format: 'auto', // Автоматический выбор формата
+                        width: 400, // Точный размер аватарки
+                        height: 400, // Точный размер аватарки
+                        crop: 'fill', // Заполнение контейнера
+                        gravity: 'face', // Фокус на лицах для аватарок
+                    },
+                    (error, result) => {
+                        if (error) {
+                            console.error('❌ [updateUserProfile] Ошибка загрузки в Cloudinary:', error);
+                            reject(error);
+                        } else {
+                            console.log('✅ [updateUserProfile] Изображение загружено в Cloudinary:', result.secure_url);
+                            resolve(result);
+                        }
+                    }
+                ).end(req.file.buffer);
+            });
+            
+            updatedUser = await User.findByIdAndUpdate(
+                userid, 
+                {name, bio, profilePic: uploadResult.secure_url}, 
+                {new: true}
+            );
         }
+        
+        console.log(`✅ [updateUserProfile] Профиль успешно обновлен`);
         res.json({success: true, user: updatedUser, message: "User updated successfully"});
         
     } catch (error) {
-        console.log(error);
+        console.log(`❌ [updateUserProfile] Ошибка:`, error);
         res.json({success: false, message: error.message});
     }
 }

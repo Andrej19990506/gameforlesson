@@ -29,7 +29,9 @@ export interface ChatContextType {
     isTyping: boolean,
     setInput: (input: string) => void,
     input: string,
-    isLoadingUsers: boolean
+    isLoadingUsers: boolean;
+    scrollPositions: { [key: string]: number };
+    saveScrollPosition: (userId: string, position: number) => Promise<void>;
 }
 
 export const ChatContext = createContext<ChatContextType | null>(null)
@@ -43,6 +45,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     const [lastMessages, setLastMessages] = useState<{ [key: string]: Message }>({})
     const [typingUser, setTypingUser] = useState<string[]>([]);
     const [isLoadingUsers, setIsLoadingUsers] = useState(false)
+    const [scrollPositions, setScrollPositions] = useState<{ [key: string]: number }>({})
     const {socket, axios, authUser} = useContext(AuthContext) as AuthContextType
     const [input, setInput] = useState('')
     const [isTyping, setIsTyping] = useState(false)
@@ -70,9 +73,21 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     //get messages for a selected user
     const getMessages = async (userId: string) => {
         try {
+            console.log(`📨 [ChatContext] Загрузка сообщений для пользователя: ${userId}`);
             const {data} = await axios.get(`/api/message/${userId}`)
             if(data.success){
                 setMessages(data.messages)
+                
+                // Сохраняем позицию скролла если она есть в ответе
+                if (data.scrollPosition !== undefined) {
+                    console.log(`📨 [ChatContext] Получена позиция скролла с сервера: ${data.scrollPosition}`);
+                    setScrollPositions(prev => ({
+                        ...prev,
+                        [userId]: data.scrollPosition
+                    }));
+                } else {
+                    console.log(`📨 [ChatContext] Позиция скролла не найдена на сервере, используем 0`);
+                }
                 
                 // Отправляем события прочтения для всех непрочитанных сообщений от выбранного пользователя
                 data.messages.forEach((message: any) => {
@@ -85,8 +100,8 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                 });
             }
         } catch (error: any) {
+            console.log(`❌ [ChatContext] Ошибка при загрузке сообщений:`, error);
             toast.error(error.message)
-            console.log(error)
         }
     }
 
@@ -405,6 +420,29 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         }
     };
 
+    // Функция для сохранения позиции скролла
+    const saveScrollPosition = async (userId: string, position: number) => {
+        try {
+            console.log(`💾 [ChatContext] Сохранение позиции скролла: userId=${userId}, position=${position}`);
+            await axios.post('/api/message/save-scroll-position', {
+                userId,
+                position
+            });
+            
+            console.log(`✅ [ChatContext] Позиция скролла успешно отправлена на сервер`);
+            
+            // Обновляем локальное состояние
+            setScrollPositions(prev => ({
+                ...prev,
+                [userId]: position
+            }));
+            
+            console.log(`✅ [ChatContext] Локальное состояние обновлено`);
+        } catch (error) {
+            console.error(`❌ [ChatContext] Ошибка при сохранении позиции скролла:`, error);
+        }
+    };
+
     useEffect(() => {
         if(socket){
             socket.on("userTyping", (data: {senderId: string, isTyping: boolean}) => {
@@ -451,6 +489,8 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         input,
         setInput,
         isLoadingUsers,
+        scrollPositions,
+        saveScrollPosition,
     } as ChatContextType
         
     

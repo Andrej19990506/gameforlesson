@@ -1,5 +1,5 @@
 import assets from '../assets/assets'
-import { useRef, useEffect, useContext, useState } from 'react'
+import { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react'
 import { formatMessageTime } from '../lib/utils'
 import type { ChatContextType } from '../../context/ChatContext'
 import { ChatContext } from '../../context/ChatContext'
@@ -8,10 +8,11 @@ import { AuthContext } from '../../context/AuthContext'
 import type { Message } from '../types/message'
 import { formatLastSeen } from '../lib/utils'
 import toast from 'react-hot-toast'
+import Gallery from './Gallery'
 import EmojiPicker from 'emoji-picker-react';
 
-const ChatContainer = () => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage, addReaction} = useContext(ChatContext) as ChatContextType
+const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => void }) => {
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage, addReaction, scrollPositions, saveScrollPosition} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showMessageMenu, setShowMessageMenu] = useState(false);
@@ -24,10 +25,34 @@ const ChatContainer = () => {
   const [lastReadMessageId, setLastReadMessageId] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(false);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+  const previousUserRef = useRef<string | null>(null);
+  const lastScrollPositionRef = useRef<number>(0);
+  const scrollTimeoutRef = useRef<number | null>(null);
+  const lastScrollTimeRef = useRef<number>(0);
+  const [localScrollPositions, setLocalScrollPositions] = useState<{[userId: string]: number}>({});
+  const [hasRestoredPosition, setHasRestoredPosition] = useState<{[userId: string]: boolean}>({});
+  const [showGallery, setShowGallery] = useState(false);
+  const [galleryImages, setGalleryImages] = useState<string[]>([]);
+  const [galleryInitialIndex, setGalleryInitialIndex] = useState(0);
 
     const handleEmojiClick = (emojiObject: any) => {
         setInput(input + emojiObject.emoji);
         setShowEmojiPicker(false);
+    };
+
+    const handleImageClick = (imageUrl: string) => {
+        // Получаем все изображения из сообщений
+        const allImages = messages
+            .filter(msg => msg.image)
+            .map(msg => msg.image)
+            .filter(Boolean) as string[];
+        
+        // Находим индекс текущего изображения
+        const imageIndex = allImages.findIndex(img => img === imageUrl);
+        
+        setGalleryImages(allImages);
+        setGalleryInitialIndex(imageIndex >= 0 ? imageIndex : 0);
+        setShowGallery(true);
     };
 
     const handleMessageClick = (e: React.MouseEvent, message: Message, messageElement: HTMLElement) => {
@@ -240,28 +265,217 @@ const ChatContainer = () => {
             toast.error('Please select an image')
             return;
         }
-        const reader = new FileReader()
-
-        reader.onload = async () => {
-            await sendMessage({ text: '', image: reader.result as string});
-            (e.target as HTMLInputElement).value = '';
+        
+        // Проверяем размер файла (максимум 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            toast.error('Размер файла не должен превышать 10MB')
+            return;
         }
-
-        reader.readAsDataURL(file)
+        
+        // Создаем FormData для отправки файла напрямую
+        const formData = new FormData();
+        formData.append('image', file);
+        formData.append('text', '');
+        
+        try {
+            // Отправляем файл напрямую на сервер
+            const response = await fetch(`/api/message/send/${selectedUser?._id}`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: formData
+            });
+            
+            if (response.ok) {
+                const result = await response.json();
+                console.log('✅ Изображение успешно отправлено:', result);
+                // Обновляем сообщения через контекст
+                if (selectedUser?._id) {
+                    getMessages(selectedUser._id);
+                }
+            } else {
+                throw new Error('Ошибка при отправке изображения');
+            }
+        } catch (error) {
+            console.error('❌ Ошибка при отправке изображения:', error);
+            toast.error('Ошибка при отправке изображения');
+        }
+        
+        // Очищаем input
+        (e.target as HTMLInputElement).value = '';
     }
 
     const scrollEnd = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
         if(selectedUser){
+            console.log(`🔄 [ChatContainer] Смена пользователя на: ${selectedUser.name} (${selectedUser._id})`);
+            
+            // Сохраняем позицию предыдущего пользователя перед сменой
+            if (previousUserRef.current && previousUserRef.current !== selectedUser._id) {
+                const previousPosition = localScrollPositions[previousUserRef.current];
+                const lastScrollPosition = lastScrollPositionRef.current;
+                
+                console.log(`🔄 [ChatContainer] СМЕНА ПОЛЬЗОВАТЕЛЯ:`);
+                console.log(`🔄 [ChatContainer] - Предыдущий пользователь: ${previousUserRef.current}`);
+                console.log(`🔄 [ChatContainer] - Позиция из localScrollPositions: ${previousPosition}`);
+                console.log(`🔄 [ChatContainer] - Позиция из lastScrollPositionRef: ${lastScrollPosition}`);
+                
+                // Используем последнюю известную позицию
+                const positionToSave = previousPosition !== undefined ? previousPosition : lastScrollPosition;
+                
+                if (positionToSave !== undefined && positionToSave !== 0) {
+                    console.log(`💾 [ChatContainer] Сохраняем позицию предыдущего пользователя: ${previousUserRef.current}, позиция: ${positionToSave}`);
+                    saveScrollPosition(previousUserRef.current, positionToSave);
+                } else {
+                    console.log(`💾 [ChatContainer] Позиция предыдущего пользователя не найдена или равна 0: ${previousUserRef.current}`);
+                }
+            }
+            
             setIsLoadingMessages(true);
+            // Сбрасываем флаг восстановления позиции при смене пользователя
+            setHasRestoredPosition(prev => ({ ...prev, [selectedUser._id]: false }));
+            console.log(`🔄 [ChatContainer] Сброшен флаг восстановления позиции для: ${selectedUser._id}`);
+            
             getMessages(selectedUser._id).finally(() => {
                 setIsLoadingMessages(false);
+                console.log(`✅ [ChatContainer] Сообщения загружены для: ${selectedUser.name}`);
             });
+            
+            // Обновляем предыдущего пользователя
+            previousUserRef.current = selectedUser._id;
+            console.log(`🔄 [ChatContainer] Обновлен previousUserRef: ${previousUserRef.current}`);
         }
     }, [selectedUser])
 
+    // Отдельный useLayoutEffect для восстановления позиции скролла после рендеринга
+    useLayoutEffect(() => {
+        if (!isLoadingMessages && selectedUser && chatContainerRef.current && !hasRestoredPosition[selectedUser._id]) {
+            const savedPosition = scrollPositions[selectedUser._id];
+            
+            console.log(`📍 [ChatContainer] Восстановление позиции для: ${selectedUser.name}, сохраненная позиция: ${savedPosition}`);
+            
+            if (savedPosition !== undefined) {
+                // Восстанавливаем позицию сразу после рендеринга
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = savedPosition;
+                    console.log(`📍 [ChatContainer] Позиция восстановлена: ${savedPosition}px`);
+                    
+                    // Обновляем локальное состояние
+                    setLocalScrollPositions(prev => ({
+                        ...prev,
+                        [selectedUser._id]: savedPosition
+                    }));
+                    
+                    // Обновляем lastScrollPositionRef чтобы предотвратить перезапись
+                    lastScrollPositionRef.current = savedPosition;
+                    
+                    setHasRestoredPosition(prev => ({ ...prev, [selectedUser._id]: true }));
+                }
+            } else {
+                // Если нет сохраненной позиции, скроллим к концу
+                if (chatContainerRef.current) {
+                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+                    console.log(`📍 [ChatContainer] Позиция не найдена, скроллим к концу: ${chatContainerRef.current.scrollHeight}px`);
+                    setHasRestoredPosition(prev => ({ ...prev, [selectedUser._id]: true }));
+                }
+            }
+        }
+    }, [isLoadingMessages, selectedUser, hasRestoredPosition])
+
+    // Сохраняем позицию при размонтировании компонента
     useEffect(() => {
+        return () => {
+            // Очищаем таймаут при размонтировании
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+                console.log(`🧹 [ChatContainer] Очищен таймаут скролла при размонтировании`);
+            }
+            
+            if (selectedUser && lastScrollPositionRef.current !== 0) {
+                console.log(`💾 [ChatContainer] Размонтирование компонента, сохраняем позицию: ${lastScrollPositionRef.current} для ${selectedUser.name}`);
+                saveScrollPosition(selectedUser._id, lastScrollPositionRef.current);
+            }
+        };
+    }, [selectedUser]); // Убираем localScrollPositions из зависимостей
+
+    // Сохраняем позицию при закрытии приложения
+    useEffect(() => {
+        const handleBeforeUnload = () => {
+            if (selectedUser && lastScrollPositionRef.current !== 0) {
+                console.log(`💾 [ChatContainer] Закрытие приложения, сохраняем позицию через sendBeacon: ${lastScrollPositionRef.current} для ${selectedUser.name}`);
+                // Синхронный запрос для сохранения перед закрытием
+                navigator.sendBeacon('/api/message/save-scroll-position', JSON.stringify({
+                    userId: selectedUser._id,
+                    position: lastScrollPositionRef.current
+                }));
+            }
+        };
+
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        
+        return () => {
+            window.removeEventListener('beforeunload', handleBeforeUnload);
+        };
+    }, [selectedUser]);
+
+    // Сохраняем позицию скролла при изменении с детальным отслеживанием остановки
+    const handleScroll = () => {
+        if (chatContainerRef.current && selectedUser) {
+            const scrollTop = chatContainerRef.current.scrollTop;
+            const currentTime = Date.now();
+            
+            // Проверяем, не произошел ли неожиданный скролл после восстановления позиции
+            if (hasRestoredPosition[selectedUser._id] && Math.abs(scrollTop - lastScrollPositionRef.current) > 50) {
+                console.log(`🚨 [ChatContainer] НЕОЖИДАННЫЙ СКРОЛЛ! Пользователь: ${selectedUser.name}`);
+                console.log(`🚨 [ChatContainer] - Предыдущая позиция: ${lastScrollPositionRef.current}px`);
+                console.log(`🚨 [ChatContainer] - Текущая позиция: ${scrollTop}px`);
+                console.log(`🚨 [ChatContainer] - Разница: ${Math.abs(scrollTop - lastScrollPositionRef.current)}px`);
+                console.log(`🚨 [ChatContainer] - Время: ${new Date().toLocaleTimeString()}`);
+                console.log(`🚨 [ChatContainer] - СТЕК ВЫЗОВОВ:`, new Error().stack);
+            }
+            
+            console.log(`📜 [ChatContainer] Скролл: ${scrollTop}px для ${selectedUser.name} в ${new Date().toLocaleTimeString()}`);
+            
+            // Сохраняем в useRef для избежания проблем с замыканиями
+            lastScrollPositionRef.current = scrollTop;
+            lastScrollTimeRef.current = currentTime;
+            
+            // Очищаем предыдущий таймаут
+            if (scrollTimeoutRef.current) {
+                clearTimeout(scrollTimeoutRef.current);
+            }
+            
+            // Обновляем только локальное состояние для UI
+            setLocalScrollPositions(prev => ({
+                ...prev,
+                [selectedUser._id]: scrollTop
+            }));
+            
+            // Устанавливаем новый таймаут для определения остановки скролла
+            scrollTimeoutRef.current = setTimeout(() => {
+                const timeSinceLastScroll = Date.now() - lastScrollTimeRef.current;
+                console.log(`🛑 [ChatContainer] ОСТАНОВКА СКРОЛЛА для ${selectedUser.name}:`);
+                console.log(`🛑 [ChatContainer] - Финальная позиция: ${lastScrollPositionRef.current}px`);
+                console.log(`🛑 [ChatContainer] - Время с последнего скролла: ${timeSinceLastScroll}ms`);
+                console.log(`🛑 [ChatContainer] - Позиция сохранена локально: ${lastScrollPositionRef.current}px`);
+            }, 150); // 150ms задержка для определения остановки
+            
+            // Проверяем, нужно ли показать кнопку скролла
+            const { scrollTop: currentScrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
+            const isAtBottom = scrollHeight - currentScrollTop - clientHeight < 100;
+            setShowScrollButton(!isAtBottom);
+        }
+    };
+
+    useEffect(() => {
+        // Игнорируем эффект во время восстановления позиции
+        if (selectedUser && hasRestoredPosition[selectedUser._id]) {
+            console.log(`🚫 [ChatContainer] Игнорируем useEffect messages во время восстановления позиции`);
+            return;
+        }
+        
         if (messages && messages.length > 0) {
             const lastMessage = messages[messages.length - 1];
             if (lastMessage && lastMessage.senderId !== authUser?._id) {
@@ -271,7 +485,7 @@ const ChatContainer = () => {
                 }
             }
         }
-    }, [messages, authUser?._id, lastReadMessageId])
+    }, [messages, authUser?._id, lastReadMessageId, hasRestoredPosition, selectedUser])
 
     const handleScrollToBottom = () => {
         if (scrollEnd.current) {
@@ -284,16 +498,16 @@ const ChatContainer = () => {
         }
     };
 
-    const handleScroll = () => {
-        if (chatContainerRef.current) {
-            const { scrollTop, scrollHeight, clientHeight } = chatContainerRef.current;
-            const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
-            setShowScrollButton(!isAtBottom);
-        }
-    };
 
     // Закрытие меню при клике вне его и блокировка скролла
     useEffect(() => {
+        console.log(`🔍 [ChatContainer] useEffect showMessageMenu/showEmojiReactions сработал:`, {
+            showMessageMenu,
+            showEmojiReactions,
+            hasRestoredPosition: selectedUser ? hasRestoredPosition[selectedUser._id] : undefined,
+            selectedUser: selectedUser?.name
+        });
+        
         const handleClickOutside = () => {
             if (showMessageMenu) {
                 setShowMessageMenu(false);
@@ -304,12 +518,14 @@ const ChatContainer = () => {
         if (showMessageMenu) {
             // Блокируем скролл контейнера чата
             if (chatContainerRef.current) {
+                console.log(`🔒 [ChatContainer] Блокируем скролл (overflow: hidden)`);
                 chatContainerRef.current.style.overflow = 'hidden';
             }
             document.addEventListener('click', handleClickOutside);
         } else {
             // Разблокируем скролл контейнера чата
             if (chatContainerRef.current) {
+                console.log(`🔓 [ChatContainer] Разблокируем скролл (overflow: auto)`);
                 chatContainerRef.current.style.overflow = 'auto';
             }
         }
@@ -324,19 +540,26 @@ const ChatContainer = () => {
     
     
     
-    return selectedUser ? (
+    return (
+        <>
+            {selectedUser ? (
             <div className='h-full overflow-scroll relative backdrop-blur-lg max-md:h-screen max-md:rounded-none max-md:border-none' style={{backgroundColor: 'var(--color-gray-800)'}}>
                 {/*Header*/}
                 <div className='flex items-center gap-3 py-4 mx-4 border-stone-500 max-md:mx-0 max-md:px-4 rounded-b-lg shadow-lg border-b border-violet-400/20' style={{backgroundColor: 'var(--color-gray-900)'}}>
                     <div className="relative">
                         <img 
-                            src={selectedUser.profilePic||assets.avatar_icon} 
+                            src={`${selectedUser.profilePic||assets.avatar_icon}?v=${Date.now()}`} 
                             alt='' 
-                            className={`w-10 h-10 rounded-full border-2 shadow-md ${
+                            className={`w-10 h-10 rounded-full border-2 shadow-md object-cover object-center cursor-pointer hover:opacity-80 transition-opacity ${
                                 onlineUsers.includes(selectedUser._id) 
                                     ? 'border-green-400' 
                                     : 'border-violet-400/50'
-                            }`} 
+                            }`}
+                            loading="eager"
+                            onClick={onToggleRightSidebar}
+                            onError={(e) => {
+                                e.currentTarget.src = assets.avatar_icon;
+                            }}
                         />
                     </div>
                     <div className='flex-1 text-white'>
@@ -375,12 +598,16 @@ const ChatContainer = () => {
                             <polyline points="15,18 9,12 15,6"></polyline>
                         </svg>
                     </button>
-                    <button className='max-md:hidden p-2 hover:bg-violet-500/20 rounded-lg transition-colors'>
-                        <img src={assets.help_icon} alt='help' className='max-w-5' />
-                    </button>
                 </div>
                 {/*Chat Container*/}
-                <div ref={chatContainerRef} onScroll={handleScroll} className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-8'>
+                <div 
+                    ref={chatContainerRef} 
+                    onScroll={handleScroll} 
+                    className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-8'
+                    style={{
+                        scrollBehavior: 'auto'
+                    }}
+                >
                 
                 {/* Loading Messages */}
                 {isLoadingMessages && (
@@ -406,10 +633,15 @@ const ChatContainer = () => {
                     const isLastMessage = index === messages.filter(msg => msg && msg.senderId).length - 1;
                     
                     return (
-                    <div key={index} data-message-id={msg._id} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"} ${isSameSender && isOwnMessage ? 'mt-0.5' : 'mt-2'} ${isLastMessage ? 'mb-0' : ''}`}>
+                        <div key={index} data-message-id={msg._id} className={`flex items-end gap-2 justify-end ${msg?.senderId !== authUser?._id && "flex-row-reverse"} ${isSameSender && isOwnMessage ? 'mt-0.5' : 'mt-2'} ${isLastMessage ? 'mb-0' : ''}`}>
                             <div className="flex flex-col items-end">
                             {msg.image ? (
-                                    <img src={msg.image} alt='image' className='max-w-[230px] border border-gray-700 rounded-lg overflow-hidden mb-2' />
+                                    <img 
+                                        src={`${msg.image}?v=${Date.now()}`} 
+                                        alt='image' 
+                                        className='max-w-[230px] max-h-[300px] border border-gray-700 rounded-lg overflow-hidden mb-2 object-cover object-center cursor-pointer hover:opacity-80 transition-opacity' 
+                                        onClick={() => handleImageClick(msg.image!)}
+                                    />
                                 ) : (
                                     <div 
                                         onClick={(e) => handleMessageClick(e, msg, e.currentTarget)}
@@ -440,7 +672,7 @@ const ChatContainer = () => {
                                                             <img 
                                                                 src={reaction.userId === authUser?._id ? authUser.profilePic || assets.avatar_icon : selectedUser.profilePic || assets.avatar_icon} 
                                                                 alt="avatar" 
-                                                                className="w-4 h-4 rounded-full"
+                                                                className="w-4 h-4 rounded-full object-cover object-center"
                                                             />
                                                         </div>
                                                     ))}
@@ -487,7 +719,7 @@ const ChatContainer = () => {
                         return !hasNewMessagesFromThem ? (
                             <div className="absolute bottom-20 left-3 flex items-end gap-2">
                                 <div className='text-center text-xs'>
-                                    <img src={selectedUser.profilePic || assets.avatar_icon} alt='user' className='w-7 rounded-full' />
+                                    <img src={selectedUser.profilePic || assets.avatar_icon} alt='user' className='w-7 h-7 rounded-full object-cover object-center' />
                                 </div>
                                 <div className="flex flex-col items-start">
                                     <div className="p-2 max-w-[200px] md:text-sm font-light rounded-lg bg-gray-500/30 text-white rounded-bl-none">
@@ -720,6 +952,16 @@ const ChatContainer = () => {
            <img src={assets.logo_icon} alt='logo' className='max-w-16' />
            <p className='text-lg font-medium text-white'>Chat anytime, anywhere</p>
         </div>
+    )}
+
+            {/* Галерея для изображений из сообщений */}
+            <Gallery 
+                isOpen={showGallery} 
+                onClose={() => setShowGallery(false)}
+                images={galleryImages}
+                initialIndex={galleryInitialIndex}
+            />
+        </>
     )
 }
 

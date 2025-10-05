@@ -18,6 +18,11 @@ const UserProfilePage = () => {
 
   // Получаем все изображения из сообщений
   useEffect(() => {
+    console.log(`👤 [UserProfilePage] useEffect messages сработал:`, {
+      messagesCount: messages.length,
+      selectedUser: selectedUser?.name,
+      timestamp: new Date().toLocaleTimeString()
+    });
     setMsgImages(messages.filter(msg => msg.image).map(msg => msg.image))
   }, [messages])
 
