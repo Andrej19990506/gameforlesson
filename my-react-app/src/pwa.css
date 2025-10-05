@@ -1,0 +1,96 @@
+/* PWA Status Bar Styling */
+
+/* Для iOS Safari */
+@supports (-webkit-touch-callout: none) {
+  /* Убираем отступы для полноэкранного режима */
+  body {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Стилизуем область под системной панелью */
+  .status-bar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    z-index: 9999;
+  }
+}
+
+/* Для Android Chrome */
+@media screen and (display-mode: standalone) {
+  body {
+    /* Убираем стандартные отступы браузера */
+    margin: 0;
+    padding: 0;
+    
+    /* Добавляем отступы для системной панели */
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Стилизуем область под системной панелью */
+  .status-bar-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: env(safe-area-inset-top);
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    z-index: 9999;
+  }
+}
+
+/* Общие стили для PWA */
+.pwa-container {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: white;
+}
+
+/* Стили для полноэкранного режима */
+.fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1000;
+}
+
+/* Анимация появления */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pwa-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Стили для темной темы системной панели */
+@media (prefers-color-scheme: dark) {
+  .status-bar-overlay {
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+  }
+}
+
+/* Стили для светлой темы системной панели */
+@media (prefers-color-scheme: light) {
+  .status-bar-overlay {
+    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  }
+}
