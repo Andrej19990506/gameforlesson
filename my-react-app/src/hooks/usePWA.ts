@@ -69,7 +69,7 @@ export const usePWA = () => {
     // Обновляем apple-mobile-web-app-status-bar-style
     const statusBarMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
     if (statusBarMeta) {
-      statusBarMeta.setAttribute('content', 'black-translucent');
+      statusBarMeta.setAttribute('content', 'default');
     }
 
     console.log('🎨 [PWA] Системная панель обновлена:', color);

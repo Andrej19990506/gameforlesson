@@ -17,7 +17,7 @@ function App() {
   // Обновляем системную панель при загрузке
   useEffect(() => {
     if (isPWA) {
-      updateStatusBar('#1a1a2e');
+      updateStatusBar('#6366f1');
       console.log('🎨 [App] PWA режим активен, системная панель настроена');
     }
   }, [isPWA, updateStatusBar]);
