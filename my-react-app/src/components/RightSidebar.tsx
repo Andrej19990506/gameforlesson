@@ -9,7 +9,7 @@ import Gallery from './Gallery';
 const RightSidebar = ({ onClose }: { onClose?: () => void }) => {
 
     const {selectedUser, messages} = useContext(ChatContext) as ChatContextType
-    const {logout, onlineUsers} = useContext(AuthContext) as AuthContextType
+    const {logout} = useContext(AuthContext) as AuthContextType
     const [msgImages, setMsgImages] = useState<string[]>([])
     const [showGallery, setShowGallery] = useState(false)
     const [galleryInitialIndex, setGalleryInitialIndex] = useState(0)
@@ -68,16 +68,16 @@ const RightSidebar = ({ onClose }: { onClose?: () => void }) => {
                                 alt='user' 
                                 className='w-32 h-32 rounded-full border-4 border-violet-400/50 shadow-2xl object-cover' 
                             />
-                            {onlineUsers.includes(selectedUser._id) && (
-                                <div className="absolute -bottom-2 -right-2 w-8 h-8 bg-green-500 rounded-full border-4 border-gray-900 flex items-center justify-center">
-                                    <div className="w-3 h-3 bg-white rounded-full"></div>
-                                </div>
-                            )}
                         </div>
                         <div className="space-y-2">
                             <h1 className="text-2xl font-bold text-white">
                                 {selectedUser.name}
                             </h1>
+                            {selectedUser.username && (
+                                <p className="text-violet-400 text-lg font-medium">
+                                    @{selectedUser.username}
+                                </p>
+                            )}
                             <p className='text-gray-300 text-sm max-w-xs leading-relaxed'>
                                 {selectedUser.bio || 'Нет описания профиля'}
                             </p>

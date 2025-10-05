@@ -1,4 +1,4 @@
-import { useContext, useState, useEffect } from 'react'
+import { useContext, useState, useEffect, useRef } from 'react'
 import { MenuIcon } from 'lucide-react'
 import assets from '../assets/assets'
 import { useNavigate } from 'react-router-dom'
@@ -11,7 +11,7 @@ import MenuBar from './MenuBar'
 
 const Sidebar = () => {
 
-    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages, typingUser, lastMessages, isLoadingUsers} = useContext(ChatContext) as ChatContextType
+    const {selectedUser, setSelectedUser, users, getUsers, unseenMessages, setUnseenMessages, typingUser, lastMessages, isLoadingUsers, searchUsers} = useContext(ChatContext) as ChatContextType
     
     const navigate = useNavigate()
 
@@ -19,11 +19,50 @@ const Sidebar = () => {
     
     const [input, setInput] = useState('')
     const [isMenuOpen, setIsMenuOpen] = useState(false)
+    const [searchResults, setSearchResults] = useState<User[]>([])
+    const [isSearching, setIsSearching] = useState(false)
+    const searchTimeoutRef = useRef<number | null>(null)
 
-    const filteredUsers = input ? users.filter((user: User) => user.name.toLowerCase().includes(input.toLowerCase())) : users
+    // Поиск пользователей в базе данных с debounce
+    useEffect(() => {
+        // Очищаем предыдущий таймаут
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+
+        if (input.trim().length >= 2) {
+            setIsSearching(true);
+            
+            // Устанавливаем таймаут для поиска (300ms задержка)
+            searchTimeoutRef.current = setTimeout(async () => {
+                try {
+                    const results = await searchUsers(input);
+                    setSearchResults(results);
+                } catch (error) {
+                    console.error('Ошибка поиска:', error);
+                    setSearchResults([]);
+                } finally {
+                    setIsSearching(false);
+                }
+            }, 300);
+        } else {
+            setSearchResults([]);
+            setIsSearching(false);
+        }
+
+        // Очистка таймаута при размонтировании
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [input, searchUsers]);
+
+    // Объединяем результаты: сначала результаты поиска, потом существующие пользователи
+    const displayUsers = input.trim().length >= 2 ? searchResults : users;
     
     // Сортируем пользователей: сначала с непрочитанными сообщениями, потом по алфавиту
-    const sortedUsers = filteredUsers.sort((a, b) => {
+    const sortedUsers = displayUsers.sort((a, b) => {
         const aUnseen = unseenMessages[a._id] || 0;
         const bUnseen = unseenMessages[b._id] || 0;
         
@@ -41,6 +80,18 @@ const Sidebar = () => {
     });
 
     
+    // Обработка выбора пользователя (из существующих чатов или из поиска)
+    const handleUserSelect = (user: User) => {
+        setSelectedUser(user);
+        setUnseenMessages({...unseenMessages, [user._id]: 0});
+        
+        // Если это новый пользователь из поиска, очищаем поле поиска
+        if (input.trim().length >= 2) {
+            setInput('');
+            setSearchResults([]);
+        }
+    };
+
     useEffect(() => {
         getUsers()
     }, [onlineUsers])
@@ -75,11 +126,11 @@ const Sidebar = () => {
                 </div>
                 <div className='bg-[#282142] rounded-full flex items-center gap-2 p-3 px-4 mt-5'>
                     <img src={assets.search_icon} alt='search' className='w-3' />
-                    <input onChange={(e) => setInput(e.target.value)} type='text' className='bg-transparent border-none outline-none text-white text-xs placeholder:[c8c8c8] flex-1' placeholder='Search Users...' />
+                    <input onChange={(e) => setInput(e.target.value)} type='text' className='bg-transparent border-none outline-none text-white text-xs placeholder:[c8c8c8] flex-1' placeholder='Поиск по имени или @username...' />
                 </div>
             </div>
             <div className='flex flex-col'>
-                {isLoadingUsers ? (
+                {isLoadingUsers || isSearching ? (
                     // Скелетоны для загрузки - показываем столько, сколько пользователей или минимум 3
                     Array.from({ length: Math.max(users.length, 3) }).map((_, index) => (
                         <div key={index} className="relative flex items-center gap-2 p-2 pl-4 rounded animate-pulse">
@@ -93,10 +144,22 @@ const Sidebar = () => {
                             </div>
                         </div>
                     ))
+                ) : sortedUsers.length === 0 && input.trim().length >= 2 ? (
+                    // Сообщение когда поиск не дал результатов
+                    <div className="text-center py-8">
+                        <div className="w-12 h-12 bg-gray-700 rounded-full flex items-center justify-center mx-auto mb-3">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="M21 21l-4.35-4.35"></path>
+                            </svg>
+                        </div>
+                        <p className="text-gray-400 text-sm">Пользователи не найдены</p>
+                        <p className="text-gray-500 text-xs mt-1">Попробуйте другой запрос</p>
+                    </div>
                 ) : (
                     sortedUsers.map((user, index) => {
                     return (
-                        <div onClick={() => {setSelectedUser(user as unknown as User); setUnseenMessages({...unseenMessages, [user._id]: 0})}}
+                        <div onClick={() => handleUserSelect(user as unknown as User)}
                             key={index} className={`relative flex items-center gap-2 p-2 pl-4 rounded cursor-pointer max-sm:text-sm transition-all duration-300 ${selectedUser?._id === user._id && 'bg-[#282142]/50'} ${unseenMessages[user._id] > 0 && 'bg-gradient-to-r from-violet-500/30 to-purple-500/30 border-l-4 border-violet-400'}`}>
                                 <div className='relative'>
                             <img 
@@ -140,7 +203,9 @@ const Sidebar = () => {
                                 </div>
                                 <div className='flex flex-col leading-5 flex-1 min-w-0'>
                                     <div className='flex items-center justify-between'>
-                                        <p className='truncate'>{user.name as string}</p>
+                                        <div className='flex items-center gap-2 min-w-0 flex-1'>
+                                            <p className='truncate'>{user.name as string}</p>
+                                        </div>
                                     </div>
                                     <div className='flex items-center justify-between'>
                                         <div className='flex-1 min-w-0 flex items-center gap-1'>

@@ -13,9 +13,9 @@ export interface AuthContextType {
     setAuthUser: (authUser: User | null) => void,
     setOnlineUsers: (onlineUsers: string[]) => void,
     setSocket: (socket: Socket | null) => void,
-    login: (state: string, credentials: {email: string, password: string}) => Promise<void>,
+    login: (state: string, credentials: {name?: string, username?: string, email: string, password: string, bio?: string}) => Promise<void>,
     logout: () => Promise<void>,
-    updateProfile: (body: {name: string, bio: string, profilePic: string}) => Promise<void>
+    updateProfile: (body: {name: string, bio: string, username?: string, profilePic: string}) => Promise<void>
     checkAuth: () => Promise<void>
     connectSocket: (userData: User) => void
     isLoading: boolean

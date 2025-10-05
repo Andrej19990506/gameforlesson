@@ -25,11 +25,49 @@ export const uploadSingle = upload.single('image');
 
 
 
-//Get all users except the logged in user
+//Get only users with whom the logged in user has messages
 export const getUsersForSidebar = async (req, res) => {
     try {
        const userId = req.user._id;
-       const filteredUsers = await User.find({_id: {$ne: userId}}).select("-password");
+       
+       // Находим всех пользователей, с которыми есть сообщения
+       const messagesWithUsers = await Message.aggregate([
+           {
+               $match: {
+                   $or: [
+                       {senderId: userId},
+                       {receiverId: userId}
+                   ]
+               }
+           },
+           {
+               $group: {
+                   _id: null,
+                   userIds: {
+                       $addToSet: {
+                           $cond: [
+                               { $eq: ["$senderId", userId] },
+                               "$receiverId",
+                               "$senderId"
+                           ]
+                       }
+                   }
+               }
+           }
+       ]);
+
+       // Если нет сообщений, возвращаем пустой список
+       if (!messagesWithUsers.length || !messagesWithUsers[0].userIds.length) {
+           return res.json({success: true, users: [], unseenMessages: {}, lastMessages: {}});
+       }
+
+       // Получаем информацию о пользователях
+       const filteredUsers = await User.find({
+           _id: { $in: messagesWithUsers[0].userIds }
+       }).select("-password");
+
+       console.log(`👥 [getUsersForSidebar] Найдено ${filteredUsers.length} пользователей с сообщениями:`, 
+           filteredUsers.map(user => ({ name: user.name, username: user.username, id: user._id })));
 
        //count number of messages  not seen and get last messages
        const unseenMessages = {}
@@ -83,7 +121,9 @@ export const getMessages = async (req, res) => {
                 {senderId: selectedUserId, receiverId: myId}
             ]
         })
-        await Message.updateMany({senderId: selectedUserId, receiverId: myId}, {seen: true});
+
+        // НЕ помечаем все сообщения как прочитанные автоматически
+        // Это будет происходить только при реальном прочтении
 
         // Расшифровываем сообщения перед отправкой клиенту
         const decryptedMessages = messages.map(message => {
@@ -122,6 +162,72 @@ export const markMessageAsSeen = async (req, res) => {
         res.json({success: true, message: "Message marked as seen"});
     } catch (error) {
         console.log(error);
+        res.json({success: false, message: error.message});
+    }
+}
+
+//api to mark all messages from a specific user as seen
+export const markMessagesAsSeen = async (req, res) => {
+    try {
+        const {userId} = req.params;
+        const myId = req.user._id;
+        
+        console.log(`👁️ [markMessagesAsSeen] Пометка сообщений как прочитанных от ${userId} для ${myId}`);
+        
+        // Помечаем все сообщения от выбранного пользователя как прочитанные
+        await Message.updateMany(
+            {senderId: userId, receiverId: myId, seen: false}, 
+            {seen: true}
+        );
+        
+        res.json({success: true, message: "Messages marked as seen"});
+    } catch (error) {
+        console.log(`❌ [markMessagesAsSeen] Ошибка:`, error);
+        res.json({success: false, message: error.message});
+    }
+}
+
+//api to delete all messages with a specific user
+export const deleteChatWithUser = async (req, res) => {
+    try {
+        const {userId} = req.params;
+        const myId = req.user._id;
+        
+        console.log(`🗑️ [deleteChatWithUser] Удаление чата с пользователем ${userId} для ${myId}`);
+        
+        // Удаляем все сообщения между пользователями (в обе стороны)
+        const result = await Message.deleteMany({
+            $or: [
+                {senderId: myId, receiverId: userId},
+                {senderId: userId, receiverId: myId}
+            ]
+        });
+        
+        console.log(`✅ [deleteChatWithUser] Удалено ${result.deletedCount} сообщений`);
+        
+        // Отправляем событие через WebSocket для обновления UI у обоих пользователей
+        const receiverSocketId = userSocketMap[userId];
+        if(receiverSocketId){
+            console.log(`📡 [deleteChatWithUser] Отправка события удаления чата получателю`);
+            console.log(`📡 [deleteChatWithUser] Данные события:`, {
+                deletedBy: myId,
+                deletedWith: userId,
+                deletedByString: myId.toString(),
+                deletedWithString: userId.toString()
+            });
+            io.to(receiverSocketId).emit("chatDeleted", {
+                deletedBy: myId,
+                deletedWith: userId
+            });
+        }
+        
+        res.json({
+            success: true, 
+            message: `Chat deleted successfully. ${result.deletedCount} messages removed.`,
+            deletedCount: result.deletedCount
+        });
+    } catch (error) {
+        console.log(`❌ [deleteChatWithUser] Ошибка:`, error);
         res.json({success: false, message: error.message});
     }
 }

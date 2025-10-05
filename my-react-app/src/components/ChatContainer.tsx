@@ -1,5 +1,5 @@
 import assets from '../assets/assets'
-import { useRef, useEffect, useLayoutEffect, useContext, useState } from 'react'
+import { useRef, useEffect, useLayoutEffect, useContext, useState, useCallback } from 'react'
 import { formatMessageTime } from '../lib/utils'
 import type { ChatContextType } from '../../context/ChatContext'
 import { ChatContext } from '../../context/ChatContext'
@@ -12,13 +12,14 @@ import Gallery from './Gallery'
 import EmojiPicker from 'emoji-picker-react';
 
 const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => void }) => {
-    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage, addReaction, scrollPositions, saveScrollPosition} = useContext(ChatContext) as ChatContextType
+    const{selectedUser, setSelectedUser,sendMessage, getMessages, messages, handleInputChange, input, setInput, retryMessage, typingUser, deleteMessage, addReaction, scrollPositions, saveScrollPosition, markMessagesAsSeen, deleteChatWithUser} = useContext(ChatContext) as ChatContextType
     const{onlineUsers, authUser} = useContext(AuthContext) as AuthContextType
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
     const [showMessageMenu, setShowMessageMenu] = useState(false);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
     const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showDeleteChatConfirm, setShowDeleteChatConfirm] = useState(false);
     const [showEmojiReactions, setShowEmojiReactions] = useState(false);
     const [showScrollButton, setShowScrollButton] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -34,6 +35,21 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
   const [showGallery, setShowGallery] = useState(false);
   const [galleryImages, setGalleryImages] = useState<string[]>([]);
   const [galleryInitialIndex, setGalleryInitialIndex] = useState(0);
+  const [showChatMenu, setShowChatMenu] = useState(false);
+  const [mutedUsers, setMutedUsers] = useState<{[userId: string]: boolean}>(() => {
+    // Инициализируем из localStorage
+    try {
+      return JSON.parse(localStorage.getItem('mutedUsers') || '{}');
+    } catch {
+      return {};
+    }
+  });
+  const [showSearch, setShowSearch] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Message[]>([]);
+  const [currentSearchIndex, setCurrentSearchIndex] = useState(-1);
+  const searchTimeoutRef = useRef<number | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
 
     const handleEmojiClick = (emojiObject: any) => {
         setInput(input + emojiObject.emoji);
@@ -193,6 +209,111 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
         // TODO: Добавить логику пересылки
     };
 
+    // Функции для меню чата
+    const handleToggleMute = () => {
+        console.log('🔄 [ChatContainer] handleToggleMute вызван для пользователя:', selectedUser?.name);
+        
+        if (selectedUser) {
+            const newMutedUsers = {
+                ...mutedUsers,
+                [selectedUser._id]: !mutedUsers[selectedUser._id]
+            };
+            
+            console.log('🔄 [ChatContainer] Новое состояние mutedUsers:', newMutedUsers);
+            
+            setMutedUsers(newMutedUsers);
+            setShowChatMenu(false);
+            
+            // Сохраняем в localStorage
+            localStorage.setItem('mutedUsers', JSON.stringify(newMutedUsers));
+            
+            const isMuted = !mutedUsers[selectedUser._id];
+            toast.success(isMuted ? `Звук отключен для ${selectedUser.name}` : `Звук включен для ${selectedUser.name}`);
+        }
+    };
+
+    const handleDeleteChat = () => {
+        if (!selectedUser) return;
+        
+        console.log('🗑️ [ChatContainer] Показ модального окна удаления чата с:', selectedUser.name);
+        setShowDeleteChatConfirm(true);
+        setShowChatMenu(false);
+    };
+
+    const confirmDeleteChat = async () => {
+        if (!selectedUser) return;
+        
+        console.log('🗑️ [ChatContainer] Подтверждено удаление чата с:', selectedUser.name);
+        
+        const success = await deleteChatWithUser(selectedUser._id);
+        
+        if (success) {
+            // Закрываем модальное окно
+            setShowDeleteChatConfirm(false);
+            
+            // Очищаем выбранного пользователя
+            setSelectedUser(null);
+        } else {
+            // Закрываем модальное окно даже при ошибке
+            setShowDeleteChatConfirm(false);
+        }
+    };
+
+    const handleSearchMessages = () => {
+        setShowChatMenu(false);
+        setShowSearch(true);
+    };
+
+
+    // Функция для прокрутки к конкретному сообщению
+    const scrollToMessage = useCallback((messageId: string) => {
+        const messageElement = document.querySelector(`[data-message-id="${messageId}"]`);
+        if (messageElement) {
+            messageElement.scrollIntoView({ 
+                behavior: 'smooth', 
+                block: 'center' 
+            });
+            
+            // Подсвечиваем найденное сообщение
+            messageElement.classList.add('bg-yellow-500/20', 'ring-2', 'ring-yellow-400');
+            setTimeout(() => {
+                messageElement.classList.remove('bg-yellow-500/20', 'ring-2', 'ring-yellow-400');
+            }, 2000);
+        }
+    }, []);
+
+    // Функция для перехода к следующему результату поиска
+    const goToNextResult = useCallback(() => {
+        if (searchResults.length === 0) return;
+        
+        const nextIndex = (currentSearchIndex + 1) % searchResults.length;
+        setCurrentSearchIndex(nextIndex);
+        scrollToMessage(searchResults[nextIndex]._id);
+    }, [searchResults, currentSearchIndex, scrollToMessage]);
+
+    // Функция для перехода к предыдущему результату поиска
+    const goToPreviousResult = useCallback(() => {
+        if (searchResults.length === 0) return;
+        
+        const prevIndex = currentSearchIndex === 0 ? searchResults.length - 1 : currentSearchIndex - 1;
+        setCurrentSearchIndex(prevIndex);
+        scrollToMessage(searchResults[prevIndex]._id);
+    }, [searchResults, currentSearchIndex, scrollToMessage]);
+
+    // Функция для закрытия поиска
+    const closeSearch = useCallback(() => {
+        setShowSearch(false);
+        setSearchQuery('');
+        setSearchResults([]);
+        setCurrentSearchIndex(-1);
+        setIsSearching(false);
+        
+        // Очищаем таймаут поиска
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+    }, []);
+
     // Компонент для отображения статуса сообщения
     const MessageStatus = ({ status, messageId, seen, messageIndex }: { status?: string, messageId: string, seen?: boolean, messageIndex: number }) => {
         if (!status) return null;
@@ -337,6 +458,9 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
             // Сбрасываем флаг восстановления позиции при смене пользователя
             setHasRestoredPosition(prev => ({ ...prev, [selectedUser._id]: false }));
             console.log(`🔄 [ChatContainer] Сброшен флаг восстановления позиции для: ${selectedUser._id}`);
+            
+            // Помечаем сообщения от выбранного пользователя как прочитанные
+            markMessagesAsSeen(selectedUser._id);
             
             getMessages(selectedUser._id).finally(() => {
                 setIsLoadingMessages(false);
@@ -537,7 +661,114 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
             }
         };
     }, [showMessageMenu, showEmojiReactions]);
-    
+
+    // Закрытие меню настроек чата при клике вне его
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (showChatMenu) {
+                console.log('🔄 [ChatContainer] Клик вне меню, showChatMenu:', showChatMenu);
+                
+                // Проверяем, что клик не по кнопке меню и не по самому меню
+                const target = e.target as HTMLElement;
+                const isMenuButton = target.closest('[data-chat-menu-button]');
+                const isMenuContent = target.closest('[data-chat-menu-content]');
+                
+                console.log('🔄 [ChatContainer] Проверка клика:', {
+                    isMenuButton: !!isMenuButton,
+                    isMenuContent: !!isMenuContent,
+                    target: target.tagName
+                });
+                
+                if (!isMenuButton && !isMenuContent) {
+                    console.log('🔄 [ChatContainer] Закрываем меню');
+                    setShowChatMenu(false);
+                }
+            }
+        };
+
+        if (showChatMenu) {
+            console.log('🔄 [ChatContainer] Меню открыто, добавляем обработчик клика');
+            
+            // Добавляем небольшую задержку, чтобы не закрывать меню сразу после открытия
+            const timeoutId = setTimeout(() => {
+                document.addEventListener('click', handleClickOutside);
+            }, 100);
+            
+            return () => {
+                console.log('🔄 [ChatContainer] Убираем обработчик клика');
+                clearTimeout(timeoutId);
+                document.removeEventListener('click', handleClickOutside);
+            };
+        }
+    }, [showChatMenu]);
+
+    // Поиск сообщений с debounce (задержкой)
+    useEffect(() => {
+        // Очищаем предыдущий таймаут
+        if (searchTimeoutRef.current) {
+            clearTimeout(searchTimeoutRef.current);
+        }
+
+        if (showSearch) {
+            if (searchQuery.trim()) {
+                // Показываем индикатор поиска
+                setIsSearching(true);
+                
+                // Устанавливаем таймаут для поиска (300ms задержка)
+                searchTimeoutRef.current = setTimeout(() => {
+                    const filteredMessages = messages.filter(msg => 
+                        msg.text && msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+                    );
+                    setSearchResults(filteredMessages);
+                    setCurrentSearchIndex(filteredMessages.length > 0 ? 0 : -1);
+                    setIsSearching(false);
+                }, 300);
+            } else {
+                // Если запрос пустой, сразу очищаем результаты
+                setSearchResults([]);
+                setCurrentSearchIndex(-1);
+                setIsSearching(false);
+            }
+        }
+
+        // Очистка таймаута при размонтировании
+        return () => {
+            if (searchTimeoutRef.current) {
+                clearTimeout(searchTimeoutRef.current);
+            }
+        };
+    }, [searchQuery, showSearch, messages]);
+
+    // Обработка клавиш для навигации по результатам поиска
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!showSearch) return;
+            
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (searchResults.length > 0) {
+                    goToNextResult();
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                closeSearch();
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                goToNextResult();
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                goToPreviousResult();
+            }
+        };
+
+        if (showSearch) {
+            document.addEventListener('keydown', handleKeyDown);
+        }
+
+        return () => {
+            document.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [showSearch, searchResults, currentSearchIndex, goToNextResult, goToPreviousResult, closeSearch]);
     
     
     return (
@@ -546,6 +777,17 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
             <div className='h-full overflow-scroll relative backdrop-blur-lg max-md:h-screen max-md:rounded-none max-md:border-none' style={{backgroundColor: 'var(--color-gray-800)'}}>
                 {/*Header*/}
                 <div className='flex items-center gap-3 py-4 mx-4 border-stone-500 max-md:mx-0 max-md:px-4 rounded-b-lg shadow-lg border-b border-violet-400/20' style={{backgroundColor: 'var(--color-gray-900)'}}>
+                    {/* Кнопка назад - только для мобильных */}
+                    <button 
+                        onClick={() => setSelectedUser(null)} 
+                        className='md:hidden p-2 bg-violet-600/20 hover:bg-violet-600/40 rounded-full transition-all duration-200 shadow-md hover:shadow-lg'
+                    >
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
+                            <polyline points="15,18 9,12 15,6"></polyline>
+                        </svg>
+                    </button>
+                    
+                    {/* Аватарка */}
                     <div className="relative">
                         <img 
                             src={`${selectedUser.profilePic||assets.avatar_icon}?v=${Date.now()}`} 
@@ -562,6 +804,8 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
                             }}
                         />
                     </div>
+                    
+                    {/* Информация о пользователе */}
                     <div className='flex-1 text-white'>
                         <div className='flex items-center gap-2'>
                             <span className='text-xl font-semibold text-white drop-shadow-sm'>{selectedUser.name}</span>
@@ -590,20 +834,134 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
                             )}
                         </div>
                     </div>
-                    <button 
-                        onClick={() => setSelectedUser(null)} 
-                        className='md:hidden p-3 bg-violet-600/20 hover:bg-violet-600/40 rounded-full transition-all duration-200 shadow-md hover:shadow-lg'
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
-                            <polyline points="15,18 9,12 15,6"></polyline>
-                        </svg>
-                    </button>
+                    
+                    {/* Кнопки действий */}
+                    <div className="flex items-center gap-2">
+                        {/* Кнопка поиска */}
+                        <button 
+                            onClick={handleSearchMessages}
+                            className='p-2 bg-violet-600/20 hover:bg-violet-600/40 rounded-full transition-all duration-200 shadow-md hover:shadow-lg'
+                            title="Поиск сообщений"
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white">
+                                <circle cx="11" cy="11" r="8"></circle>
+                                <path d="M21 21l-4.35-4.35"></path>
+                            </svg>
+                        </button>
+                        
+                        {/* Кнопка меню */}
+                        <button 
+                            onClick={() => {
+                                console.log('🔄 [ChatContainer] Клик на кнопку меню, текущее состояние:', showChatMenu);
+                                setShowChatMenu(!showChatMenu);
+                            }}
+                            className={`p-2 rounded-full transition-all duration-300 shadow-md hover:shadow-lg hover:scale-110 active:scale-95 ${
+                                showChatMenu 
+                                    ? 'bg-violet-600/40 ring-2 ring-violet-400/50' 
+                                    : 'bg-violet-600/20 hover:bg-violet-600/40'
+                            }`}
+                            title="Настройки чата"
+                            data-chat-menu-button
+                        >
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white transition-transform duration-300">
+                                <circle cx="12" cy="12" r="1"></circle>
+                                <circle cx="19" cy="12" r="1"></circle>
+                                <circle cx="5" cy="12" r="1"></circle>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
+                
+                {/* Панель поиска */}
+                {showSearch && (
+                    <div className='px-4 py-3 border-b border-violet-400/20 bg-gray-900/50'>
+                        <div className='flex items-center gap-3'>
+                            <div className='flex-1 relative'>
+                                <input
+                                    type="text"
+                                    placeholder="Поиск сообщений..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className='w-full px-4 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500'
+                                    autoFocus
+                                />
+                                {searchQuery && (
+                                    <button
+                                        onClick={() => setSearchQuery('')}
+                                        className='absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white'
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                                        </svg>
+                                    </button>
+                                )}
+                            </div>
+                            
+                            {/* Навигация по результатам */}
+                            {searchResults.length > 0 && (
+                                <div className='flex items-center gap-2'>
+                                    <button
+                                        onClick={goToPreviousResult}
+                                        className='p-2 bg-violet-600/20 hover:bg-violet-600/40 rounded-lg transition-colors'
+                                        title="Предыдущий результат"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <polyline points="15,18 9,12 15,6"></polyline>
+                                        </svg>
+                                    </button>
+                                    
+                                    <span className='text-sm text-gray-400 min-w-[60px] text-center'>
+                                        {currentSearchIndex + 1} / {searchResults.length}
+                                    </span>
+                                    
+                                    <button
+                                        onClick={goToNextResult}
+                                        className='p-2 bg-violet-600/20 hover:bg-violet-600/40 rounded-lg transition-colors'
+                                        title="Следующий результат"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                            <polyline points="9,18 15,12 9,6"></polyline>
+                                        </svg>
+                                    </button>
+                                </div>
+                            )}
+                            
+                            <button
+                                onClick={closeSearch}
+                                className='p-2 bg-gray-600/20 hover:bg-gray-600/40 rounded-lg transition-colors'
+                                title="Закрыть поиск"
+                            >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                                </svg>
+                            </button>
+                        </div>
+                        
+                        {/* Информация о результатах поиска */}
+                        {searchQuery && (
+                            <div className='mt-2 text-sm text-gray-400 flex items-center gap-2'>
+                                {isSearching ? (
+                                    <>
+                                        <div className="w-4 h-4 border-2 border-violet-400 border-t-transparent rounded-full animate-spin"></div>
+                                        <span>Поиск...</span>
+                                    </>
+                                ) : searchResults.length === 0 ? (
+                                    'Сообщения не найдены'
+                                ) : (
+                                    `Найдено ${searchResults.length} сообщений`
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
+                
                 {/*Chat Container*/}
                 <div 
                     ref={chatContainerRef} 
                     onScroll={handleScroll} 
-                    className='flex flex-col h-[calc(100%-120px)] overflow-y-scroll p-3 pb-8'
+                    className={`flex flex-col overflow-y-scroll p-3 pb-8 ${showSearch ? 'h-[calc(100%-180px)]' : 'h-[calc(100%-120px)]'}`}
                     style={{
                         scrollBehavior: 'auto'
                     }}
@@ -693,17 +1051,26 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
                 })}
                 
                 {/* Empty State */}
-                {!isLoadingMessages && messages.filter(msg => msg && msg.senderId).length === 0 && (
-                    <div className="flex flex-col items-center justify-center h-full text-center">
-                        <div className="w-20 h-20 bg-violet-500/20 rounded-full flex items-center justify-center mb-4">
+                {!isLoadingMessages && messages.length === 0 && selectedUser && (
+                    <div className="flex flex-col items-center justify-center h-full text-center py-12 px-4">
+                        <div className="w-20 h-20 bg-violet-500/20 rounded-full flex items-center justify-center mb-6">
                             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-violet-400">
                                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
                             </svg>
                         </div>
-                        <h3 className="text-lg font-medium text-white mb-2">Начните общение</h3>
-                        <p className="text-gray-400 text-sm max-w-xs">
-                            Отправьте первое сообщение, чтобы начать разговор с {selectedUser.name}
+                        <h3 className="text-xl font-semibold text-white mb-2">Начните общение</h3>
+                        <p className="text-gray-400 mb-4 max-w-sm">
+                            Отправьте первое сообщение <span className="text-violet-400 font-medium">{selectedUser.name}</span> и начните интересную беседу!
                         </p>
+                        <div className="flex items-center gap-2 text-sm text-gray-500">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <path d="M8 14s1.5 2 4 2 4-2 4-2"></path>
+                                <line x1="9" y1="9" x2="9.01" y2="9"></line>
+                                <line x1="15" y1="9" x2="15.01" y2="9"></line>
+                            </svg>
+                            <span>Сообщения появятся здесь</span>
+                        </div>
                     </div>
                 )}
                     
@@ -880,9 +1247,9 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
                     </div>
                 )}
 
-                {/* Модальное окно подтверждения удаления */}
+                {/* Модальное окно подтверждения удаления сообщения */}
                 {showDeleteConfirm && selectedMessage && (
-                    <div className="fixed inset-0  bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="fixed inset-0 flex items-center justify-center z-50">
                         <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4">
                             <h3 className="text-lg font-semibold text-white mb-4">Удалить сообщение</h3>
                             <p className="text-gray-300 mb-2">Вы уверены, что хотите удалить это сообщение?</p>
@@ -902,6 +1269,54 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
                                     className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
                                 >
                                     УДАЛИТЬ
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Модальное окно подтверждения удаления чата */}
+                {showDeleteChatConfirm && selectedUser && (
+                    <div className="fixed inset-0 bg-gray-800/65 bg-opacity-50 flex items-center justify-center z-50">
+                        <div className="bg-gray-800 rounded-lg p-6 max-w-md mx-4 animate-in zoom-in-95 fade-in">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 bg-red-500/20 rounded-full flex items-center justify-center">
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-red-400">
+                                        <polyline points="3,6 5,6 21,6"></polyline>
+                                        <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                </div>
+                                <h3 className="text-lg font-semibold text-white">Удалить чат</h3>
+                            </div>
+                            
+                            <div className="mb-4">
+                                <p className="text-gray-300 mb-2">
+                                    Вы уверены, что хотите удалить весь чат с <span className="text-violet-400 font-medium">{selectedUser.name}</span>?
+                                </p>
+                                <p className="text-gray-400 text-sm mb-2">Это действие нельзя отменить.</p>
+                                <p className="text-red-400 text-sm font-medium">Все сообщения будут удалены навсегда для обоих пользователей.</p>
+                            </div>
+                            
+                            <div className="flex gap-3 justify-end">
+                                <button
+                                    onClick={() => setShowDeleteChatConfirm(false)}
+                                    className="px-4 py-2 text-gray-400 hover:text-white transition-colors rounded-md hover:bg-gray-700/50"
+                                >
+                                    ОТМЕНА
+                                </button>
+                                <button
+                                    onClick={confirmDeleteChat}
+                                    className="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors flex items-center gap-2"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                        <polyline points="3,6 5,6 21,6"></polyline>
+                                        <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                                    </svg>
+                                    УДАЛИТЬ ЧАТ
                                 </button>
                             </div>
                         </div>
@@ -953,6 +1368,52 @@ const ChatContainer = ({ onToggleRightSidebar }: { onToggleRightSidebar?: () => 
            <p className='text-lg font-medium text-white'>Chat anytime, anywhere</p>
         </div>
     )}
+
+            {/* Меню настроек чата */}
+            {showChatMenu && selectedUser && (
+                <div 
+                    className='fixed z-50 bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-xl py-2 min-w-[200px] transform transition-all duration-300 ease-out animate-in slide-in-from-top-2 fade-in zoom-in-95'
+                    style={{ 
+                        right: '20px',
+                        top: '80px'
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    data-chat-menu-content
+                >   
+                    <button
+                        onClick={handleToggleMute}
+                        className='w-full px-4 py-3 text-left text-white hover:bg-gray-700/80 transition-all duration-200 text-sm flex items-center gap-3 hover:scale-[1.02] hover:shadow-md rounded-md mx-2 animate-in slide-in-from-left-2 fade-in delay-100'
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform duration-200 group-hover:scale-110">
+                            {mutedUsers[selectedUser._id] ? (
+                                // Иконка включения звука
+                                <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            ) : (
+                                // Иконка отключения звука
+                                <path d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6M17 9l6 6"></path>
+                            )}
+                        </svg>
+                        {mutedUsers[selectedUser._id] ? 'Включить звук' : 'Отключить звук'}
+                    </button>
+                    
+                    {/* Разделитель */}
+                    <div className="mx-4 my-2 border-t border-gray-700/50"></div>
+                    
+                    {/* Кнопка удаления чата */}
+                    <button
+                        onClick={handleDeleteChat}
+                        className='w-full px-4 py-3 text-left text-red-400 hover:bg-red-500/20 transition-all duration-200 text-sm flex items-center gap-3 hover:scale-[1.02] hover:shadow-md rounded-md mx-2 animate-in slide-in-from-left-2 fade-in delay-200'
+                    >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="transition-transform duration-200 group-hover:scale-110">
+                            <polyline points="3,6 5,6 21,6"></polyline>
+                            <path d="M19,6v14a2,2 0 0,1 -2,2H7a2,2 0 0,1 -2,-2V6m3,0V4a2,2 0 0,1 2,-2h4a2,2 0 0,1 2,2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                        </svg>
+                        Удалить чат
+                    </button>
+                </div>
+            )}
 
             {/* Галерея для изображений из сообщений */}
             <Gallery 

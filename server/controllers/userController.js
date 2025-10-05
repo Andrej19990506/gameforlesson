@@ -24,22 +24,38 @@ export const uploadProfilePic = upload.single('profilePic');
 
 //signup new user
 export const signup = async (req, res) => {
-    const {email, name, password, bio} = req.body;
+    const {email, name, password, bio, username} = req.body;
+    
+    console.log(`👤 [signup] Регистрация нового пользователя:`, {
+        email, name, bio, username,
+        hasUsername: !!username,
+        usernameLength: username ? username.length : 0
+    });
+    
     try {
         if(!email || !name || !password || !bio){
             return res.json({success: false, message: "Missing details"});
         }
-        const user = await User.findOne({email});
-
-        if(user){
-            return res.json({success: false, message: "User already exists"});
+        
+        // Проверяем уникальность email
+        const existingUserByEmail = await User.findOne({email});
+        if(existingUserByEmail){
+            return res.json({success: false, message: "User with this email already exists"});
+        }
+        
+        // Проверяем уникальность username если он предоставлен
+        if(username) {
+            const existingUserByUsername = await User.findOne({username});
+            if(existingUserByUsername){
+                return res.json({success: false, message: "Username already taken"});
+            }
         }
 
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
         const newUser = await User.create({
-            email, name, password: hashedPassword, bio
+            email, name, password: hashedPassword, bio, username
         });
 
         const token = generateToken(newUser._id);
@@ -79,16 +95,29 @@ export const signup = async (req, res) => {
  //controller to update user profile
 export const updateUserProfile = async (req, res) => {
     try {
-        const {name, bio} = req.body;
+        const {name, bio, username} = req.body;
         const userid = req.user._id;
         let updatedUser;
 
         console.log(`👤 [updateUserProfile] Обновление профиля для пользователя: ${userid}`);
+        console.log(`👤 [updateUserProfile] Данные для обновления:`, {
+            name, bio, username,
+            hasUsername: !!username,
+            usernameLength: username ? username.length : 0
+        });
+
+        // Проверяем уникальность username если он предоставлен
+        if(username) {
+            const existingUserByUsername = await User.findOne({username, _id: {$ne: userid}});
+            if(existingUserByUsername){
+                return res.json({success: false, message: "Username already taken"});
+            }
+        }
 
         if (!req.file) {
             // Если изображение не загружено, обновляем только текст
             console.log(`👤 [updateUserProfile] Обновление без изображения`);
-            updatedUser = await User.findByIdAndUpdate(userid, {name, bio}, {new: true});
+            updatedUser = await User.findByIdAndUpdate(userid, {name, bio, username}, {new: true});
         } else {
             // Обрабатываем изображение
             console.log(`👤 [updateUserProfile] Обработка изображения:`, {
@@ -123,7 +152,7 @@ export const updateUserProfile = async (req, res) => {
             
             updatedUser = await User.findByIdAndUpdate(
                 userid, 
-                {name, bio, profilePic: uploadResult.secure_url}, 
+                {name, bio, username, profilePic: uploadResult.secure_url}, 
                 {new: true}
             );
         }
@@ -133,6 +162,34 @@ export const updateUserProfile = async (req, res) => {
         
     } catch (error) {
         console.log(`❌ [updateUserProfile] Ошибка:`, error);
+        res.json({success: false, message: error.message});
+    }
+}
+
+//controller to search users by username
+export const searchUsersByUsername = async (req, res) => {
+    try {
+        const {username} = req.query;
+        const currentUserId = req.user._id;
+        
+        console.log(`🔍 [searchUsersByUsername] Поиск пользователей по username: ${username}`);
+        
+        if (!username || username.trim().length < 2) {
+            return res.json({success: false, message: "Username must be at least 2 characters long"});
+        }
+        
+        // Ищем пользователей по username (регистронезависимый поиск)
+        const users = await User.find({
+            username: { $regex: username, $options: 'i' },
+            _id: { $ne: currentUserId } // Исключаем текущего пользователя
+        }).select("-password").limit(10);
+        
+        console.log(`🔍 [searchUsersByUsername] Найдено ${users.length} пользователей`);
+        
+        res.json({success: true, users, message: `Found ${users.length} users`});
+        
+    } catch (error) {
+        console.log(`❌ [searchUsersByUsername] Ошибка:`, error);
         res.json({success: false, message: error.message});
     }
 }
@@ -171,6 +228,29 @@ export const deleteUserAccount = async (req, res) => {
         
     } catch (error) {
         console.log('Error in deleteUserAccount:', error);
+        res.json({success: false, message: error.message});
+    }
+}
+
+//controller to get user by ID
+export const getUserById = async (req, res) => {
+    try {
+        const { userId } = req.params;
+        
+        console.log(`👤 [getUserById] Получение пользователя по ID: ${userId}`);
+        
+        const user = await User.findById(userId).select("-password");
+        
+        if (!user) {
+            console.log(`❌ [getUserById] Пользователь не найден: ${userId}`);
+            return res.json({success: false, message: "User not found"});
+        }
+        
+        console.log(`✅ [getUserById] Пользователь найден: ${user.name}`);
+        res.json({success: true, user});
+        
+    } catch (error) {
+        console.log('Error in getUserById:', error);
         res.json({success: false, message: error.message});
     }
 }

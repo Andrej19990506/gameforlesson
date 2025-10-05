@@ -3,6 +3,7 @@ import mongoose from 'mongoose'
 const userSchema = new mongoose.Schema({
     email: {type: String, required: true, unique: true},
     name: {type: String, required: true},
+    username: {type: String, unique: true, sparse: true}, // sparse: true позволяет null значения
     password: {type: String, required: true, minlength: 6},
     profilePic: {type: String, default: ""},
     bio: {type: String},

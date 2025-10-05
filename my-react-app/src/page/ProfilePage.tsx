@@ -9,7 +9,7 @@ import toast from "react-hot-toast"
 import ImageCropper from "../components/ImageCropper"
 
 const ProfilePage = () => {
-  const {authUser, updateProfile, logout, setAuthUser} = useContext(AuthContext) as {authUser: User | null, updateProfile: (body: {name: string, bio: string, profilePic: string}) => Promise<void>, logout: () => void, setAuthUser: (user: User | null) => void}
+  const {authUser, updateProfile, logout, setAuthUser} = useContext(AuthContext) as {authUser: User | null, updateProfile: (body: {name: string, bio: string, username?: string, profilePic: string}) => Promise<void>, logout: () => void, setAuthUser: (user: User | null) => void}
 
   const [selectedImage, setSelectedImage] = useState<File | null>(null)
   const [showImageCropper, setShowImageCropper] = useState(false)
@@ -21,6 +21,7 @@ const ProfilePage = () => {
   const navigate = useNavigate()
   const [name, setName] = useState(authUser?.name || '')
   const [bio, setBio] = useState(authUser?.bio || '')
+  const [username, setUsername] = useState(authUser?.username || '')
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -71,7 +72,7 @@ const ProfilePage = () => {
       if (!selectedImage) {
         console.log('📝 [ProfilePage] Обновление без изображения');
         // Если изображение не выбрано, обновляем только текст
-        await updateProfile({name: name, bio: bio, profilePic: authUser?.profilePic || ''})
+        await updateProfile({name: name, bio: bio, username: username, profilePic: authUser?.profilePic || ''})
         console.log('✅ [ProfilePage] Обновление без изображения завершено, переход в чат');
         navigate('/')
         return
@@ -95,6 +96,7 @@ const ProfilePage = () => {
       formData.append('profilePic', selectedImage);
       formData.append('name', name);
       formData.append('bio', bio);
+      formData.append('username', username);
       
       console.log('📤 [ProfilePage] FormData создан, отправляем запрос...');
       
@@ -272,6 +274,21 @@ const ProfilePage = () => {
                 placeholder="Ваше имя" 
                 className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed" 
               />
+            </div>
+
+            <div>
+              <label className='block text-sm font-medium text-gray-300 mb-2'>
+                Имя пользователя (необязательно)
+              </label>
+              <input 
+                onChange={(e) => setUsername(e.target.value)} 
+                value={username}
+                type="text" 
+                disabled={!isEditing}
+                placeholder="@username" 
+                className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent disabled:opacity-50 disabled:cursor-not-allowed" 
+              />
+              <p className='text-xs text-gray-500 mt-1'>По этому имени другие пользователи смогут найти вас</p>
             </div>
 
             <div>

@@ -32,6 +32,9 @@ export interface ChatContextType {
     isLoadingUsers: boolean;
     scrollPositions: { [key: string]: number };
     saveScrollPosition: (userId: string, position: number) => Promise<void>;
+    markMessagesAsSeen: (userId: string) => Promise<void>;
+    deleteChatWithUser: (userId: string) => Promise<boolean>;
+    searchUsers: (query: string) => Promise<User[]>;
 }
 
 export const ChatContext = createContext<ChatContextType | null>(null)
@@ -39,6 +42,26 @@ export const ChatContext = createContext<ChatContextType | null>(null)
 export const ChatProvider = ({children}: {children: React.ReactNode}) => {
 
     const [selectedUser, setSelectedUser] = useState<User | null>(null)
+    
+    // Функция для воспроизведения звука уведомления
+    const playNotificationSound = () => {
+        try {
+            const audio = new Audio('/sound/new_message.mp3');
+            audio.volume = 0.5; // Устанавливаем громкость
+            audio.play().catch(error => {
+                console.log('Не удалось воспроизвести звук уведомления:', error);
+            });
+        } catch (error) {
+            console.log('Ошибка при создании аудио:', error);
+        }
+    };
+
+    // Функция для проверки, нужно ли воспроизводить звук для пользователя
+    const shouldPlaySound = (userId: string) => {
+        // Проверяем, не отключен ли звук для этого пользователя
+        const mutedUsers = JSON.parse(localStorage.getItem('mutedUsers') || '{}');
+        return !mutedUsers[userId];
+    };
     const [messages, setMessages] = useState<Message[]>([])
     const [users, setUsers] = useState<User[]>([])
     const [unseenMessages, setUnseenMessages] = useState<{ [key: string]: number }>({})
@@ -51,6 +74,45 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     const [isTyping, setIsTyping] = useState(false)
 
     const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    
+    // Функция для безопасного добавления пользователя в список
+    const addUserIfNotExists = async (userId: string, playSoundAfterAdd = false) => {
+        setUsers(prevUsers => {
+            const userExists = prevUsers.some(user => user._id === userId);
+            
+            if (!userExists) {
+                console.log(`🔄 [ChatContext] Добавляем пользователя ${userId} в список`);
+                
+                // Получаем информацию о пользователе с сервера асинхронно
+                axios.get(`/api/user/${userId}`)
+                    .then(response => {
+                        if (response.data.success) {
+                            const newUser = response.data.user;
+                            setUsers(currentUsers => {
+                                // Проверяем еще раз, не добавился ли пользователь за это время
+                                const stillNotExists = !currentUsers.some(user => user._id === newUser._id);
+                                if (stillNotExists) {
+                                    console.log(`✅ [ChatContext] Пользователь ${newUser.name} успешно добавлен в список`);
+                                    
+                                    // Воспроизводим звук если нужно
+                                    if (playSoundAfterAdd && shouldPlaySound(userId)) {
+                                        playNotificationSound();
+                                    }
+                                    
+                                    return [...currentUsers, newUser];
+                                }
+                                return currentUsers;
+                            });
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка при получении информации о пользователе:', error);
+                    });
+            }
+            
+            return prevUsers;
+        });
+    };
     
     //get all users for sidebar
     const getUsers = async () => {
@@ -140,6 +202,9 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                        ...prev,
                        [selectedUser._id]: sentMessage
                    }));
+                   
+                   // Проверяем, есть ли получатель в списке пользователей и добавляем если нужно
+                   addUserIfNotExists(selectedUser._id);
             }else{
                 // Обновляем статус на "error"
                 setMessages((prevMessages) => 
@@ -261,7 +326,7 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
     //finction to subscribe to messages for a selected user
     const subscribeToMessages = async () => {
         if(!socket) return
-        socket.on("newMessage", (newMessage) => {
+        socket.on("newMessage", async (newMessage) => {
             newMessage._id = newMessage._id.toString()
             newMessage.senderId = newMessage.senderId.toString()
             newMessage.receiverId = newMessage.receiverId.toString()
@@ -294,6 +359,23 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                    ...prev,
                    [newMessage.senderId]: newMessage
                }));
+               
+               // Проверяем, есть ли отправитель в списке пользователей и добавляем если нужно
+               setUsers(prevUsers => {
+                   const senderExists = prevUsers.some(user => user._id === newMessage.senderId);
+                   
+                   if (!senderExists) {
+                       // Добавляем пользователя асинхронно с воспроизведением звука
+                       addUserIfNotExists(newMessage.senderId, true);
+                   } else {
+                       // Если пользователь уже есть в списке, воспроизводим звук сразу
+                       if (shouldPlaySound(newMessage.senderId)) {
+                           playNotificationSound();
+                       }
+                   }
+                   
+                   return prevUsers;
+               });
            }
         })
 
@@ -443,6 +525,81 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         }
     };
 
+    // Функция для пометки сообщений как прочитанных
+    const markMessagesAsSeen = async (userId: string) => {
+        try {
+            console.log(`👁️ [ChatContext] Пометка сообщений как прочитанных от пользователя ${userId}`);
+            
+            await axios.put(`/api/message/mark-messages/${userId}`);
+            
+            // Обновляем локальное состояние сообщений
+            setMessages(prevMessages => 
+                prevMessages.map(msg => 
+                    msg.senderId === userId && msg.receiverId === authUser?._id 
+                        ? { ...msg, seen: true }
+                        : msg
+                )
+            );
+            
+            console.log(`✅ [ChatContext] Сообщения от пользователя ${userId} помечены как прочитанные`);
+        } catch (error) {
+            console.error(`❌ [ChatContext] Ошибка пометки сообщений как прочитанных:`, error);
+        }
+    };
+
+    // Функция для удаления чата с пользователем
+    const deleteChatWithUser = async (userId: string) => {
+        try {
+            console.log(`🗑️ [ChatContext] Удаление чата с пользователем: ${userId}`);
+            
+            const response = await axios.delete(`/api/message/chat/${userId}`);
+            
+            if (response.data.success) {
+                console.log(`✅ [ChatContext] Чат успешно удален:`, response.data);
+                
+                // Очищаем сообщения с этим пользователем
+                setMessages([]);
+                
+                // Обновляем список пользователей
+                await getUsers();
+                
+                toast.success(`Чат удален. Удалено ${response.data.deletedCount} сообщений.`);
+                
+                return true;
+            } else {
+                throw new Error(response.data.message);
+            }
+        } catch (error: any) {
+            console.error(`❌ [ChatContext] Ошибка удаления чата:`, error);
+            toast.error(error.response?.data?.message || 'Ошибка при удалении чата');
+            return false;
+        }
+    };
+
+    // Поиск пользователей по username в базе данных
+    const searchUsers = async (query: string): Promise<User[]> => {
+        try {
+            if (!query || query.trim().length < 2) {
+                return [];
+            }
+            
+            console.log(`🔍 [ChatContext] Поиск пользователей по запросу: "${query}"`);
+            const response = await axios.get(`/api/user/search?username=${encodeURIComponent(query)}`);
+            
+            if (response.data.success) {
+                console.log(`🔍 [ChatContext] Найдено ${response.data.users.length} пользователей`);
+                return response.data.users;
+            } else {
+                console.log(`🔍 [ChatContext] Поиск не дал результатов:`, response.data.message);
+                return [];
+            }
+        } catch (error: any) {
+            console.error(`❌ [ChatContext] Ошибка поиска пользователей:`, error);
+            toast.error('Ошибка при поиске пользователей');
+            return [];
+        }
+    };
+
     useEffect(() => {
         if(socket){
             socket.on("userTyping", (data: {senderId: string, isTyping: boolean}) => {
@@ -462,6 +619,43 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
                     )
                 );
             })
+
+            socket.on("chatDeleted", (data: {deletedBy: string, deletedWith: string}) => {
+                console.log(`🗑️ [ChatContext] Получено событие удаления чата:`, data);
+                console.log(`🗑️ [ChatContext] Текущий selectedUser:`, selectedUser);
+                console.log(`🗑️ [ChatContext] Сравнение ID:`, {
+                    selectedUserId: selectedUser?._id,
+                    selectedUserIdString: selectedUser?._id?.toString(),
+                    deletedWith: data.deletedWith,
+                    deletedWithString: data.deletedWith?.toString(),
+                    isMatch: selectedUser?._id?.toString() === data.deletedWith?.toString()
+                });
+                
+                // Если удаленный чат - это текущий выбранный пользователь
+                // Проверяем оба случая: если мы удалили чат с кем-то, или если с нами удалили чат
+                const isCurrentUserDeletedBy = selectedUser && selectedUser._id.toString() === data.deletedBy.toString();
+                const isCurrentUserDeletedWith = selectedUser && selectedUser._id.toString() === data.deletedWith.toString();
+                
+                if (isCurrentUserDeletedBy || isCurrentUserDeletedWith) {
+                    console.log(`🗑️ [ChatContext] Удален чат с текущим пользователем, очищаем сообщения`);
+                    console.log(`🗑️ [ChatContext] Причина:`, {
+                        isCurrentUserDeletedBy,
+                        isCurrentUserDeletedWith,
+                        selectedUserId: selectedUser._id,
+                        deletedBy: data.deletedBy,
+                        deletedWith: data.deletedWith
+                    });
+                    setMessages([]);
+                    // НЕ закрываем чат, оставляем пользователя выбранным для показа пустого состояния
+                } else {
+                    console.log(`🗑️ [ChatContext] Удален чат с другим пользователем, не очищаем текущий чат`);
+                }
+                
+                // Обновляем список пользователей
+                getUsers();
+                
+                toast.success('Чат был удален другим пользователем. Сообщения очищены.');
+            });
         }
     }, [socket, selectedUser])
     
@@ -491,6 +685,9 @@ export const ChatProvider = ({children}: {children: React.ReactNode}) => {
         isLoadingUsers,
         scrollPositions,
         saveScrollPosition,
+        markMessagesAsSeen,
+        deleteChatWithUser,
+        searchUsers,
     } as ChatContextType
         
     

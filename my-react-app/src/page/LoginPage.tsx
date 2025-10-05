@@ -6,6 +6,7 @@ import { ArrowLeft, Eye, EyeOff, User, Mail, Lock, FileText } from 'lucide-react
 const LoginPage = () => {
   const [currentState, setCurrentState] = useState('Sign Up')
   const [name, setName] = useState('')
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [bio, setBio] = useState('')
@@ -13,7 +14,7 @@ const LoginPage = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [agreeToTerms, setAgreeToTerms] = useState(false)
 
-  const {login} = useContext(AuthContext) as {login: (state: string, credentials: {name: string, email: string, password: string, bio: string}) => Promise<void>}
+  const {login} = useContext(AuthContext) as {login: (state: string, credentials: {name: string, username?: string, email: string, password: string, bio: string}) => Promise<void>}
 
   const onSubmitHandler = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -24,7 +25,7 @@ const LoginPage = () => {
     if(currentState === 'Sign Up' && !agreeToTerms) {
       return
     }
-    login(currentState === 'Sign Up' ? 'signup' : 'login', {name, email, password, bio})
+    login(currentState === 'Sign Up' ? 'signup' : 'login', {name, username, email, password, bio})
   }
 
   return (
@@ -86,6 +87,24 @@ const LoginPage = () => {
                       required
                     />
                   </div>
+                </div>
+              )}
+
+              {/* Username Field - Only for Sign Up */}
+              {currentState === 'Sign Up' && !isDataSubmitted && (
+                <div className='space-y-2'>
+                  <label className='text-sm font-medium text-gray-300'>Имя пользователя (необязательно)</label>
+                  <div className='relative'>
+                    <User size={20} className='absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400' />
+                    <input 
+                      onChange={(e) => setUsername(e.target.value)} 
+                      value={username}
+                      type='text' 
+                      className='w-full pl-10 pr-4 py-3 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent transition-colors' 
+                      placeholder='@username' 
+                    />
+                  </div>
+                  <p className='text-xs text-gray-500'>По этому имени другие пользователи смогут найти вас</p>
                 </div>
               )}
 

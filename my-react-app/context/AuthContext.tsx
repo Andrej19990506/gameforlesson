@@ -35,7 +35,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     }
 
     //Login function to handle user authentication and scoket connection
-    const login = async (state: string, credentials: {email: string, password: string}) => {
+    const login = async (state: string, credentials: {name?: string, username?: string, email: string, password: string, bio?: string}) => {
         try {
             const {data} = await axios.post(`/api/auth/${state}`, credentials);
             if(data.success){
@@ -68,7 +68,7 @@ export const AuthProvider = ({children}: {children: React.ReactNode}) => {
     }
 
     //Update user function to handle user profile updates
-    const updateProfile = async (body: {name: string, bio: string, profilePic: string}) => {
+    const updateProfile = async (body: {name: string, bio: string, username?: string, profilePic: string}) => {
         try {
             console.log('🔄 [AuthContext] updateProfile вызван с данными:', body);
             const{data} = await axios.put('/api/user/update-profile', body);
